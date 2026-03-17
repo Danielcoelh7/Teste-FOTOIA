@@ -1,0 +1,81 @@
+<!DOCTYPE html>
+<HTML língua="pt-br">
+<caboça>
+ <meta conjunto de caracteres="UTF-8">
+ <meta nome="janela de visualização" conteúdo=="janela de visualização" conteúdo="largura=largura do dispositivo, escala inicial=1,0">>
+ <título>IA de Cômodos - Móvel</título>
+ <estilo>
+ corpo { família de fontes: sem serifa; alinhamento de texto: centro; pré-enchimento: 20px; }
+ #image-preview { largura máxima: 100%; alta: automática; marca superior: 15px; raio da borda: 10px; }
+ #label-container { margem superior: 20px; peso da fonte: negrito; tamanho da fonte: 1,2em; }
+ .carregando { cor: cinza; }
+: cinza; }</estilo>
+</caboça>
+<corpo>
+
+ <h2>Detector de Cômodos</h2>
+ <p id="status" ="status" class="loading">Carregando inteligência artificial...</p>="carregando">Carregando inteligência artificial...</p>
+
+ <entrada tipo="arquivo" aceitar="imagem/*" capturador=="arquivo" aceitar="imagem/*" capturador="ambiente" id="entrada de arquivo" estilo="exibir:nenhum;" mudança="preverFromFile(evento)"> id="entrada-de-arquivo" estilo="exibir:nenhum;" onchange="predictFromFile(evento)">
+    
+ <botão id="btn-foto"="btn-foto" onclick="document.getElementById('entrada de arquivo').click()" desativado>onclick="document.getElementById('entrada de arquivo').click()" desativado>
+ Tirar Foto do Cômodo
+ </botão>
+
+ <dividir id=="contêiner">>
+ <imagem id=="prévia de imagem" fonte="" estilo="exibir:nenhum;"> src="" style="display:none;">
+ </dividir>
+    
+ <dividir id=="contêiner de rótulo"></dividir>></dividir>
+
+ <roteiro fonte=="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@latest/dist/tf.min.js"></roteiro>></roteiro>
+ <roteiro fonte=="https://cdn.jsdelivr.net/npm/@teachablemachine/image@latest/dist/teachablemachine-image.min.js"></roteiro>></roteiro>
+
+ <tipo de roteiro=="texto/javascript">>
+ // Link do seu modelo (mantenha o seu link aqui)
+ const URL = "https://teachablemachine.withgoogle.com/models/9sJclF37o/";
+
+ dê modelo, labelContainer, maxPredictions;
+
+ função assíncrona init() {
+ tenda {
+ modelo = aguarde tmImage.load(URL + "model.json", URL + "metadata.json");
+ maxPredictions = modelo.getTotalClasses();
+                
+ document.getElementById("status").innerText = "IA Pronta!";
+ document.getElementById("btn-foto").disabled = falso;
+ labelContainer = document.getElementById("contêiner de rótulo");
+ } pegar (e) {
+ document.getElementById("status").innerText = "Erro ao carregar modelo. Verifique uma internet.";
+            }
+        }
+
+ função assíncrona predictFromFile(evento) {
+ const arquivo = evento.target.files[0];
+ se (!arquivo) retornar;
+
+ const imgElement = document.getElementById("visualização de imagem");
+ imgElement.src = window.URL.createObjectURL(arquivo);
+ imgElement.style.display = "bloco em linha";
+
+ imgElement.onload = assíncrono () => {
+ const previsão = aguardar modelo.predict(imgElement);
+ labelContainer.innerHTML = "";
+                
+ previsão.forEach(p => {
+ const porcentagem = (p.probabilidade * 100).toFixed(0);
+ const pElement = documento.createElement("div");
+ pElement.innerHTML = `${p.className}: ${porcentagem}%`;
+                    
+ // Destaca o resultado com mais de 80%
+ se (p.probabilidade > 0,8) pElement.style.color = "verde";
+                    
+ labelContainer.appendChild(pElement);
+ });
+ };
+        }
+
+ init();
+ </roteiro>
+</corpo>
+</html>
