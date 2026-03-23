@@ -1,120 +1,79 @@
-<!DOCTYPE html>
-<html lang="pt-br">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>IA de Cômodos - Mobile</title>
-    <style>
-        body { font-family: sans-serif; text-align: center; padding: 20px; }
-        #image-preview { max-width: 100%; height: auto; margin-top: 15px; border-radius: 10px; }
-        #label-container { margin-top: 20px; font-weight: bold; font-size: 1.2em; }
-        .loading { color: gray; }
-    </style>
-</head>
-<body>
+<div>Teachable Machine Image Model - Narrador de Ambientes</div>
+<button type="button" onclick="init()">Começar Câmera e Voz</button>
+<div id="webcam-container"></div>
+<div id="label-container"></div>
 
-    <h2>Detector de Cômodos</h2>
-    <p id="status" class="loading">Carregando inteligência artificial...</p>
+<script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@latest/dist/tf.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@teachablemachine/image@latest/dist/teachablemachine-image.min.js"></script>
 
-    <input type="file" accept="image/*" capture="environment" id="file-input" style="display:none;" onchange="predictFromFile(event)">
-    
-    <button id="btn-foto" onclick="document.getElementById('file-input').click()" disabled>
-        Tirar Foto do Cômodo
-    </button>
+<script type="text/javascript">
+    const URL = "https://teachablemachine.withgoogle.com/models/f7KpBSET4/";
 
-    <div id="container">
-        <img id="image-preview" src="" style="display:none;">
-    </div>
-    
-    <div id="label-container"></div>
+    let model, webcam, labelContainer, maxPredictions;
+    let ultimaFala = 0; // Controla o intervalo de 1 segundo
 
-    <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@latest/dist/tf.min.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/@teachablemachine/image@latest/dist/teachablemachine-image.min.js"></script>
+    async function init() {
+        const modelURL = URL + "model.json";
+        const metadataURL = URL + "metadata.json";
 
-    <script type="text/javascript">
-        // Link do seu modelo (mantenha o seu link aqui)
-        const URL = "https://teachablemachine.withgoogle.com/models/9sJclF37o/";
+        model = await tmImage.load(modelURL, metadataURL);
+        maxPredictions = model.getTotalClasses();
 
-        let model, labelContainer, maxPredictions;
+        // Configuração da câmera (ajustado para mobile)
+        const flip = true; 
+        webcam = new tmImage.Webcam(300, 300, flip); 
+        await webcam.setup({ facingMode: "environment" }); // Tenta usar a câmera traseira se possível
+        await webcam.play();
+        window.requestAnimationFrame(loop);
 
-        async function init() {
-            try {
-                model = await tmImage.load(URL + "model.json", URL + "metadata.json");
-                maxPredictions = model.getTotalClasses();
-                
-                document.getElementById("status").innerText = "IA Pronta!";
-                document.getElementById("btn-foto").disabled = false;
-                labelContainer = document.getElementById("label-container");
-            } catch (e) {
-                document.getElementById("status").innerText = "Erro ao carregar modelo. Verifique a internet.";
-            }
-        }
-
-       let ultimaFala = "";
-
-async function predictFromFile(event) {
-    const file = event.target.files[0];
-    if (!file) return;
-
-    const imgElement = document.getElementById("image-preview");
-    imgElement.src = window.URL.createObjectURL(file);
-    imgElement.style.display = "inline-block";
-
-    imgElement.onload = async () => {
-        const prediction = await model.predict(imgElement);
-        
-        // Limpamos o container para atualizar os números
-        labelContainer.innerHTML = "";
-
-        let maiorProbabilidade = 0;
-        let classeVencedora = "";
-
-        // 1. Loop para mostrar TODAS as porcentagens na tela
+        document.getElementById("webcam-container").appendChild(webcam.canvas);
+        labelContainer = document.getElementById("label-container");
         for (let i = 0; i < maxPredictions; i++) {
+            labelContainer.appendChild(document.createElement("div"));
+        }
+    }
+
+    async function loop() {
+        webcam.update(); 
+        await predict();
+        window.requestAnimationFrame(loop);
+    }
+
+    async function predict() {
+        const prediction = await model.predict(webcam.canvas);
+        
+        let maiorProb = 0;
+        let localVencedor = "";
+
+        for (let i = 0; i < maxPredictions; i++) {
+            const prob = prediction[i].probability;
             const nomeClasse = prediction[i].className;
-            const probabilidade = prediction[i].probability;
-            const porcentagem = (probabilidade * 100).toFixed(0);
-
-            // Criamos a linha de texto para cada cômodo
-            const elementoClasse = document.createElement("div");
-            elementoClasse.innerHTML = `${nomeClasse}: ${porcentagem}%`;
             
-            // Estilo visual: Deixa verde se for o que a IA está vendo agora
-            if (probabilidade > 0.5) {
-                elementoClasse.style.color = "#2ecc71"; // Verde
-                elementoClasse.style.fontWeight = "bold";
-            }
+            labelContainer.childNodes[i].innerHTML = nomeClasse + ": " + prob.toFixed(2);
 
-            labelContainer.appendChild(elementoClasse);
-
-            // 2. Lógica para descobrir quem é o vencedor para a FALA
-            if (probabilidade > maiorProbabilidade) {
-                maiorProbabilidade = probabilidade;
-                classeVencedora = nomeClasse;
+            // Lógica para encontrar o local atual
+            if (prob > maiorProb) {
+                maiorProb = prob;
+                localVencedor = nomeClasse;
             }
         }
 
-        // 3. Falar o nome do cômodo se a confiança for alta (ex: acima de 70%)
-        if (maiorProbabilidade > 0.70 && classeVencedora !== ultimaFala) {
-            falar(classeVencedora);
-            ultimaFala = classeVencedora; // Salva para não repetir a mesma fala na próxima foto igual
+        // Lógica da Voz: Fala a cada 1000ms (1 segundo) 
+        // Apenas se a confiança for maior que 85% para evitar erros
+        let agora = Date.now();
+        if (agora - ultimaFala > 1000 && maiorProb > 0.85) {
+            falar(localVencedor);
+            ultimaFala = agora;
         }
-    };
-}
+    }
 
-// Função de voz
-function falar(texto) {
-    // Para qualquer fala que esteja acontecendo agora para não encavalar
-    window.speechSynthesis.cancel();
-
-    const msg = new SpeechSynthesisUtterance();
-    msg.text = "Identificado: " + texto;
-    msg.lang = "pt-BR";
-    msg.rate = 1.1; // Velocidade normal
-    window.speechSynthesis.speak(msg);
-}
-
-        init();
-    </script>
-</body>
-</html>
+    function falar(texto) {
+        // Cancela falas anteriores para não encavalar
+        window.speechSynthesis.cancel(); 
+        const msg = new SpeechSynthesisUtterance();
+        msg.text = texto;
+        msg.lang = 'pt-BR';
+        msg.rate = 1.2; // Velocidade um pouco mais rápida para fluidez
+        window.speechSynthesis.speak(msg);
+    }
+</script>
