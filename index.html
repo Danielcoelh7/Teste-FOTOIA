@@ -1,79 +1,103 @@
-<div>Teachable Machine Image Model - Narrador de Ambientes</div>
-<button type="button" onclick="init()">Começar Câmera e Voz</button>
-<div id="webcam-container"></div>
-<div id="label-container"></div>
+<!DOCTYPE html>
+<html lang="pt-br">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>IA com Voz - Teachable Machine</title>
+    <style>
+        body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; display: flex; flex-direction: column; align-items: center; background-color: #1a1a1a; color: white; padding: 20px; }
+        h1 { color: #00ff88; text-align: center; }
+        #webcam-container { margin: 20px 0; border: 5px solid #00ff88; border-radius: 15px; overflow: hidden; box-shadow: 0 0 20px rgba(0,255,136,0.3); }
+        button { padding: 20px 40px; font-size: 20px; background-color: #00ff88; color: #1a1a1a; border: none; border-radius: 50px; cursor: pointer; font-weight: bold; transition: 0.3s; }
+        button:hover { transform: scale(1.05); background-color: #00cc6e; }
+        #label-container { display: grid; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); gap: 10px; width: 100%; max-width: 900px; margin-top: 20px; }
+        #label-container div { background: #333; padding: 10px; border-radius: 8px; font-size: 13px; border: 1px solid #444; }
+        .active-class { border-color: #00ff88 !important; background: #004425 !important; font-weight: bold; }
+    </style>
+</head>
+<body>
 
-<script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@latest/dist/tf.min.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/@teachablemachine/image@latest/dist/teachablemachine-image.min.js"></script>
+    <h1>IA Narradora (30 Classes)</h1>
+    <button type="button" onclick="init()">ATIVAR CÂMERA E VOZ</button>
 
-<script type="text/javascript">
-    const URL = "https://teachablemachine.withgoogle.com/models/f7KpBSET4/";
+    <div id="webcam-container"></div>
+    <div id="label-container"></div>
 
-    let model, webcam, labelContainer, maxPredictions;
-    let ultimaFala = 0; // Controla o intervalo de 1 segundo
+    <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@latest/dist/tf.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@teachablemachine/image@latest/dist/teachablemachine-image.min.js"></script>
 
-    async function init() {
-        const modelURL = URL + "model.json";
-        const metadataURL = URL + "metadata.json";
+    <script type="text/javascript">
+        const URL = "https://teachablemachine.withgoogle.com/models/qvqu9nB4J/";
 
-        model = await tmImage.load(modelURL, metadataURL);
-        maxPredictions = model.getTotalClasses();
+        let model, webcam, labelContainer, maxPredictions;
+        let últimaClasseFalada = "";
 
-        // Configuração da câmera (ajustado para mobile)
-        const flip = true; 
-        webcam = new tmImage.Webcam(300, 300, flip); 
-        await webcam.setup({ facingMode: "environment" }); // Tenta usar a câmera traseira se possível
-        await webcam.play();
-        window.requestAnimationFrame(loop);
-
-        document.getElementById("webcam-container").appendChild(webcam.canvas);
-        labelContainer = document.getElementById("label-container");
-        for (let i = 0; i < maxPredictions; i++) {
-            labelContainer.appendChild(document.createElement("div"));
+        // Função para o celular falar
+        function falar(texto) {
+            if (window.speechSynthesis.speaking) return; // Não interrompe se já estiver falando
+            const mensagem = new SpeechSynthesisUtterance(texto);
+            mensagem.lang = 'pt-BR';
+            mensagem.rate = 1.2; // Velocidade da fala
+            window.speechSynthesis.speak(mensagem);
         }
-    }
 
-    async function loop() {
-        webcam.update(); 
-        await predict();
-        window.requestAnimationFrame(loop);
-    }
+        async function init() {
+            const modelURL = URL + "model.json";
+            const metadataURL = URL + "metadata.json";
 
-    async function predict() {
-        const prediction = await model.predict(webcam.canvas);
-        
-        let maiorProb = 0;
-        let localVencedor = "";
+            model = await tmImage.load(modelURL, metadataURL);
+            maxPredictions = model.getTotalClasses();
 
-        for (let i = 0; i < maxPredictions; i++) {
-            const prob = prediction[i].probability;
-            const nomeClasse = prediction[i].className;
-            
-            labelContainer.childNodes[i].innerHTML = nomeClasse + ": " + prob.toFixed(2);
+            // Configuração otimizada para celular
+            const flip = true;
+            webcam = new tmImage.Webcam(300, 300, flip);
+            await webcam.setup({ facingMode: "environment" }); // Tenta usar a câmera traseira se possível
+            await webcam.play();
+            window.requestAnimationFrame(loop);
 
-            // Lógica para encontrar o local atual
-            if (prob > maiorProb) {
-                maiorProb = prob;
-                localVencedor = nomeClasse;
+            document.getElementById("webcam-container").appendChild(webcam.canvas);
+            labelContainer = document.getElementById("label-container");
+            for (let i = 0; i < maxPredictions; i++) {
+                labelContainer.appendChild(document.createElement("div"));
             }
         }
 
-        // Lógica da Voz: Fala a cada 1000ms (1 segundo) 
-        // Apenas se a confiança for maior que 85% para evitar erros
-        let agora = Date.now();
-        if (agora - ultimaFala > 1000 && maiorProb > 0.85) {
-            falar(localVencedor);
-            ultimaFala = agora;
+        async function loop() {
+            webcam.update();
+            await predict();
+            window.requestAnimationFrame(loop);
         }
-    }
 
-    function falar(texto) {
-        // Cancela falas anteriores para não encavalar
-        window.speechSynthesis.cancel(); 
-        const msg = new SpeechSynthesisUtterance();
-        msg.text = texto;
-        msg.lang = 'pt-BR';
-        msg.rate = 1.2; // Velocidade um pouco mais rápida para fluidez
-        window.speechSynthesis.speak(msg);
-    }
-</script>
+        async function predict() {
+            const prediction = await model.predict(webcam.canvas);
+            
+            let maiorProbabilidade = 0;
+            let classeVencedora = "";
+
+            for (let i = 0; i < maxPredictions; i++) {
+                const prob = prediction[i].probability;
+                const nomeClasse = prediction[i].className;
+                
+                labelContainer.childNodes[i].innerHTML = `<strong>${nomeClasse}</strong>: ${(prob * 100).toFixed(0)}%`;
+                
+                // Lógica para destacar e identificar o vencedor
+                if (prob > 0.85) { // Só considera se tiver mais de 85% de certeza
+                    labelContainer.childNodes[i].className = "active-class";
+                    if (prob > maiorProbabilidade) {
+                        maiorProbabilidade = prob;
+                        classeVencedora = nomeClasse;
+                    }
+                } else {
+                    labelContainer.childNodes[i].className = "";
+                }
+            }
+
+            // Se a IA tiver certeza de uma classe e for diferente da última que ela falou
+            if (classeVencedora !== "" && classeVencedora !== últimaClasseFalada) {
+                últimaClasseFalada = classeVencedora;
+                falar(classeVencedora);
+            }
+        }
+    </script>
+</body>
+</html>
