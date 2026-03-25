@@ -3,22 +3,72 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>IA com Voz - Teachable Machine</title>
+    <title>IA Narradora Pro - iOS & Android</title>
     <style>
-        body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; display: flex; flex-direction: column; align-items: center; background-color: #1a1a1a; color: white; padding: 20px; }
-        h1 { color: #00ff88; text-align: center; }
-        #webcam-container { margin: 20px 0; border: 5px solid #00ff88; border-radius: 15px; overflow: hidden; box-shadow: 0 0 20px rgba(0,255,136,0.3); }
-        button { padding: 20px 40px; font-size: 20px; background-color: #00ff88; color: #1a1a1a; border: none; border-radius: 50px; cursor: pointer; font-weight: bold; transition: 0.3s; }
-        button:hover { transform: scale(1.05); background-color: #00cc6e; }
-        #label-container { display: grid; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); gap: 10px; width: 100%; max-width: 900px; margin-top: 20px; }
-        #label-container div { background: #333; padding: 10px; border-radius: 8px; font-size: 13px; border: 1px solid #444; }
-        .active-class { border-color: #00ff88 !important; background: #004425 !important; font-weight: bold; }
+        body { 
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+            display: flex; 
+            flex-direction: column; 
+            align-items: center; 
+            background-color: #000; 
+            color: white; 
+            padding: 20px;
+            margin: 0;
+        }
+        h1 { color: #00ff88; font-size: 22px; margin-bottom: 10px; }
+        #webcam-container { 
+            margin: 15px 0; 
+            border: 3px solid #00ff88; 
+            border-radius: 15px; 
+            overflow: hidden; 
+            line-height: 0;
+            box-shadow: 0 0 20px rgba(0,255,136,0.2);
+        }
+        button { 
+            padding: 18px 30px; 
+            font-size: 18px; 
+            background-color: #00ff88; 
+            color: #000; 
+            border: none; 
+            border-radius: 50px; 
+            cursor: pointer; 
+            font-weight: bold;
+            width: 100%;
+            max-width: 320px;
+            box-shadow: 0 4px 15px rgba(0,255,136,0.4);
+        }
+        button:active { transform: scale(0.98); }
+        #label-container { 
+            display: grid; 
+            grid-template-columns: repeat(2, 1fr); 
+            gap: 8px; 
+            width: 100%; 
+            max-width: 500px; 
+            margin-top: 20px; 
+        }
+        .class-box { 
+            background: #1a1a1a; 
+            padding: 10px; 
+            border-radius: 8px; 
+            font-size: 12px; 
+            text-align: center; 
+            border: 1px solid #333;
+            transition: all 0.2s;
+        }
+        .high-prob { 
+            background: #004425; 
+            border-color: #00ff88; 
+            color: #00ff88;
+            font-weight: bold;
+            transform: scale(1.05);
+        }
     </style>
 </head>
 <body>
 
-    <h1>IA Narradora (30 Classes)</h1>
-    <button type="button" onclick="init()">ATIVAR CÂMERA E VOZ</button>
+    <h1>Detector de Objetos (Voz)</h1>
+    
+    <button type="button" id="btn-start" onclick="init()">ATIVAR CÂMERA E ÁUDIO</button>
 
     <div id="webcam-container"></div>
     <div id="label-container"></div>
@@ -27,38 +77,68 @@
     <script src="https://cdn.jsdelivr.net/npm/@teachablemachine/image@latest/dist/teachablemachine-image.min.js"></script>
 
     <script type="text/javascript">
+        // Link do seu modelo
         const URL = "https://teachablemachine.withgoogle.com/models/qvqu9nB4J/";
 
         let model, webcam, labelContainer, maxPredictions;
-        let últimaClasseFalada = "";
+        let ultimaClasseFalada = "";
+        const synth = window.speechSynthesis;
 
-        // Função para o celular falar
+        // Função de fala otimizada para iOS
         function falar(texto) {
-            if (window.speechSynthesis.speaking) return; // Não interrompe se já estiver falando
-            const mensagem = new SpeechSynthesisUtterance(texto);
-            mensagem.lang = 'pt-BR';
-            mensagem.rate = 1.2; // Velocidade da fala
-            window.speechSynthesis.speak(mensagem);
+            if (!texto) return;
+
+            // Limpa qualquer fala que esteja na fila para evitar atrasos
+            synth.cancel();
+
+            const utterance = new SpeechSynthesisUtterance(texto);
+            utterance.lang = 'pt-BR';
+            utterance.rate = 1.0; // Velocidade normal
+            utterance.pitch = 1.0;
+
+            // Tenta forçar a voz em português
+            const voices = synth.getVoices();
+            const ptVoice = voices.find(v => v.lang.includes('pt-BR'));
+            if (ptVoice) utterance.voice = ptVoice;
+
+            synth.speak(utterance);
         }
 
         async function init() {
+            // Esconde o botão após o clique para evitar múltiplos inícios
+            document.getElementById("btn-start").style.display = "none";
+
+            // TRUQUE PARA iOS: Dispara uma fala vazia no momento exato do clique
+            // Isso "destrava" o áudio no Safari para o resto da sessão
+            const unlockAudio = new SpeechSynthesisUtterance("Iniciando");
+            unlockAudio.volume = 0; // Silencioso, só para destravar
+            synth.speak(unlockAudio);
+
             const modelURL = URL + "model.json";
             const metadataURL = URL + "metadata.json";
 
+            // Carrega o modelo
             model = await tmImage.load(modelURL, metadataURL);
             maxPredictions = model.getTotalClasses();
 
-            // Configuração otimizada para celular
-            const flip = true;
+            // Configura a Webcam (300x300 é um bom tamanho para mobile)
+            const flip = true; 
             webcam = new tmImage.Webcam(300, 300, flip);
-            await webcam.setup({ facingMode: "environment" }); // Tenta usar a câmera traseira se possível
+            
+            // "environment" tenta usar a câmera traseira do iPhone
+            await webcam.setup({ facingMode: "environment" }); 
             await webcam.play();
             window.requestAnimationFrame(loop);
 
+            // Adiciona a câmera na tela
             document.getElementById("webcam-container").appendChild(webcam.canvas);
+            
+            // Prepara os labels das 30 classes
             labelContainer = document.getElementById("label-container");
             for (let i = 0; i < maxPredictions; i++) {
-                labelContainer.appendChild(document.createElement("div"));
+                const div = document.createElement("div");
+                div.className = "class-box";
+                labelContainer.appendChild(div);
             }
         }
 
@@ -70,34 +150,38 @@
 
         async function predict() {
             const prediction = await model.predict(webcam.canvas);
-            
             let maiorProbabilidade = 0;
-            let classeVencedora = "";
+            let melhorClasse = "";
 
             for (let i = 0; i < maxPredictions; i++) {
-                const prob = prediction[i].probability;
-                const nomeClasse = prediction[i].className;
+                const p = prediction[i];
+                const box = labelContainer.childNodes[i];
                 
-                labelContainer.childNodes[i].innerHTML = `<strong>${nomeClasse}</strong>: ${(prob * 100).toFixed(0)}%`;
-                
-                // Lógica para destacar e identificar o vencedor
-                if (prob > 0.85) { // Só considera se tiver mais de 85% de certeza
-                    labelContainer.childNodes[i].className = "active-class";
-                    if (prob > maiorProbabilidade) {
-                        maiorProbabilidade = prob;
-                        classeVencedora = nomeClasse;
+                box.innerHTML = `${p.className}<br>${(p.probability * 100).toFixed(0)}%`;
+
+                // Regra: se a confiança for maior que 85%
+                if (p.probability > 0.85) {
+                    box.classList.add("high-prob");
+                    if (p.probability > maiorProbabilidade) {
+                        maiorProbabilidade = p.probability;
+                        melhorClasse = p.className;
                     }
                 } else {
-                    labelContainer.childNodes[i].className = "";
+                    box.classList.remove("high-prob");
                 }
             }
 
-            // Se a IA tiver certeza de uma classe e for diferente da última que ela falou
-            if (classeVencedora !== "" && classeVencedora !== últimaClasseFalada) {
-                últimaClasseFalada = classeVencedora;
-                falar(classeVencedora);
+            // Só fala se a classe mudar e for detectada com firmeza
+            if (melhorClasse !== "" && melhorClasse !== ultimaClasseFalada) {
+                ultimaClasseFalada = melhorClasse;
+                falar(melhorClasse);
             }
         }
+
+        // Garante que as vozes sejam carregadas no Chrome/Safari
+        window.speechSynthesis.onvoiceschanged = () => {
+            window.speechSynthesis.getVoices();
+        };
     </script>
 </body>
 </html>
