@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>IA Guia Indoor - IFSP Cubatão</title>
+    <title>Navegador Indoor Acessível - Federal</title>
     <style>
         body { 
             font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; 
@@ -15,7 +15,7 @@
             align-items: center; 
             padding: 20px;
         }
-        h1 { color: #00ff88; font-size: 1.4rem; text-align: center; margin-bottom: 20px; }
+        h1 { color: #00ff88; font-size: 1.5rem; text-align: center; margin-bottom: 10px; }
         
         #webcam-container { 
             width: 280px; 
@@ -24,97 +24,165 @@
             border-radius: 20px; 
             overflow: hidden; 
             margin-bottom: 20px;
-            display: none;
-            box-shadow: 0 0 20px rgba(0, 255, 136, 0.3);
+            display: none; 
+            background: #111;
         }
 
         .menu-destinos {
             display: grid;
-            grid-template-columns: 1fr;
-            gap: 12px;
+            grid-template-columns: 1fr 1fr;
+            gap: 10px;
             width: 100%;
-            max-width: 400px;
+            max-width: 450px;
+            display: none;
         }
 
         button {
-            padding: 18px;
-            font-size: 1.1rem;
+            padding: 15px;
+            font-size: 0.9rem;
             font-weight: bold;
             border-radius: 12px;
             border: none;
             cursor: pointer;
-            transition: transform 0.1s;
+            transition: 0.2s;
         }
 
-        .btn-start { background-color: #00ff88; color: #000; width: 100%; margin-bottom: 20px; }
+        .btn-start { 
+            background-color: #00ff88; 
+            color: #000; 
+            width: 100%; 
+            max-width: 400px;
+            margin-bottom: 20px; 
+            font-size: 1.2rem;
+        }
+
         .btn-destino { background-color: #1a1a1a; color: #fff; border: 2px solid #333; }
-        .btn-destino.ativo { border-color: #00ff88; background-color: #004425; color: #00ff88; }
+        .btn-destino.ativo { border-color: #00ff88; background-color: #004425; }
 
         #status-box {
-            margin-top: 20px;
-            padding: 15px;
+            margin-top: 15px;
+            padding: 20px;
             background: #111;
-            border-radius: 10px;
+            border-radius: 15px;
             text-align: center;
             width: 100%;
             max-width: 400px;
-            border: 1px solid #333;
+            border: 1px solid #00ff88;
+            min-height: 100px;
         }
-        #local-atual { color: #00ff88; font-weight: bold; margin-top: 5px; }
+
+        #proximo-passo {
+            font-size: 1.3rem;
+            margin-top: 10px;
+            color: #00ff88;
+            font-weight: bold;
+        }
+
+        #local-atual {
+            font-size: 0.85rem;
+            color: #888;
+            margin-top: 12px;
+        }
     </style>
 </head>
 <body>
 
-    <h1>Assistente de Voz Indoor</h1>
+    <h1>Assistente de Navegação</h1>
     
-    <button class="btn-start" id="btn-init" onclick="init()">ATIVAR CÂMERA E VOZ</button>
+    <button class="btn-start" id="btn-init" onclick="init()">ATIVAR SISTEMA</button>
 
     <div id="webcam-container"></div>
 
     <div id="status-box">
-        <div id="instrucao">Selecione um destino abaixo</div>
-        <div id="local-atual">Aguardando IA...</div>
+        <div id="instrucao">Selecione um destino para começar</div>
+        <div id="proximo-passo"></div>
+        <div id="local-atual">Aguardando câmera...</div>
     </div>
 
-    <div class="menu-destinos" id="menu-destinos" style="display:none; margin-top: 20px;">
-        </div>
+    <h3 id="titulo-destinos" style="display:none; margin-top:20px;">Para onde deseja ir?</h3>
+    <div class="menu-destinos" id="menu-destinos"></div>
 
     <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@latest/dist/tf.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/@teachablemachine/image@latest/dist/teachablemachine-image.min.js"></script>
 
     <script>
-        const URL = "https://teachablemachine.withgoogle.com/models/qvqu9nB4J/";
+        const MODEL_URL = "https://teachablemachine.withgoogle.com/models/qvqu9nB4J/";
         
-        // Mapeamento baseado nos seus dados de passos (Ponto 0 = Entrada)
-        const mapaPassos = {
-            "Entrada": 0,
-            "Refeitório": 80,
-            "Rampa Maior": 120,
-            "Pátio": 170,
-            "Bebedouro": 185,
-            "Centro": 210,
-            "Salas Especiais": 225,
-            "Biblioteca": 250,
-            "Cantina": 250
+        // Mapeamento de Coordenadas  e Conexões 
+        const locais = {
+            "Portaria": { x: 222.1860, y: 576.5740, vizinhos: ["Caminho entrada"] },
+            "Caminho entrada": { x: 294.9800, y: 583.5000, vizinhos: ["Portaria", "Refeitorio fora", "Rampa maior"] },
+            "Refeitorio fora": { x: 402.0000, y: 606.0000, vizinhos: ["Caminho entrada", "Refeitorio"] },
+            "Refeitorio": { x: 406.0000, y: 698.0000, vizinhos: ["Refeitorio fora", "Caminho entrada"] },
+            "Rampa maior": { x: 572.0000, y: 617.0000, vizinhos: ["Caminho entrada", "Rampa menor"] },
+            "Rampa menor": { x: 646.0000, y: 612.0000, vizinhos: ["Rampa maior", "Caminho para o patio"] },
+            "Caminho para o patio": { x: 670.0000, y: 441.0000, vizinhos: ["Rampa menor", "Patio"] },
+            "Patio": { x: 740.0000, y: 450.0000, vizinhos: ["Caminho para o patio"] }
         };
 
-        let model, webcam, maxPredictions;
-        let ultimaClasseFalada = "";
-        let destinoAtual = null;
+        let model, webcam, destinoAtual = null, ultimaClasseFalada = "";
         const synth = window.speechSynthesis;
 
+        // --- ALGORITMO A* ---
+        function calcularDistancia(a, b) {
+            return Math.sqrt(Math.pow(locais[a].x - locais[b].x, 2) + Math.pow(locais[a].y - locais[b].y, 2));
+        }
+
+        function algoritmoAStar(inicio, fim) {
+            let openSet = [inicio];
+            let veioDe = {};
+            let gScore = {}; 
+            let fScore = {}; 
+
+            Object.keys(locais).forEach(l => {
+                gScore[l] = Infinity;
+                fScore[l] = Infinity;
+            });
+
+            gScore[inicio] = 0;
+            fScore[inicio] = calcularDistancia(inicio, fim);
+
+            while (openSet.length > 0) {
+                let atual = openSet.reduce((a, b) => fScore[a] < fScore[b] ? a : b);
+
+                if (atual === fim) {
+                    let caminho = [atual];
+                    while (veioDe[atual]) {
+                        atual = veioDe[atual];
+                        caminho.push(atual);
+                    }
+                    return caminho.reverse();
+                }
+
+                openSet = openSet.filter(item => item !== atual);
+
+                if (locais[atual] && locais[atual].vizinhos) {
+                    locais[atual].vizinhos.forEach(vizinho => {
+                        let tentativeGScore = gScore[atual] + calcularDistancia(atual, vizinho);
+                        if (tentativeGScore < gScore[vizinho]) {
+                            veioDe[vizinho] = atual;
+                            gScore[vizinho] = tentativeGScore;
+                            fScore[vizinho] = gScore[vizinho] + calcularDistancia(vizinho, fim);
+                            if (!openSet.includes(vizinho)) openSet.push(vizinho);
+                        }
+                    });
+                }
+            }
+            return null;
+        }
+
+        // --- INTERAÇÃO E VOZ ---
         function falar(texto) {
-            synth.cancel(); // Cancela falas antigas para priorizar a instrução atual
+            synth.cancel();
             const utterance = new SpeechSynthesisUtterance(texto);
             utterance.lang = 'pt-BR';
-            utterance.rate = 1.1; // Um pouco mais rápido para feedback ágil
             synth.speak(utterance);
         }
 
         function gerarMenu() {
             const menu = document.getElementById("menu-destinos");
-            Object.keys(mapaPassos).forEach(local => {
-                if(local === "Entrada") return;
+            menu.innerHTML = "";
+            Object.keys(locais).forEach(local => {
                 const btn = document.createElement("button");
                 btn.className = "btn-destino";
                 btn.innerText = local;
@@ -122,31 +190,29 @@
                     destinoAtual = local;
                     document.querySelectorAll('.btn-destino').forEach(b => b.classList.remove('ativo'));
                     btn.classList.add('ativo');
-                    falar("Destino definido: " + local);
-                    document.getElementById("instrucao").innerText = "Destino: " + local;
+                    falar("Destino definido para " + local);
+                    document.getElementById("instrucao").innerText = "Indo para: " + local;
                 };
                 menu.appendChild(btn);
             });
         }
 
+        // --- SISTEMA PRINCIPAL ---
         async function init() {
             document.getElementById("btn-init").style.display = "none";
             document.getElementById("webcam-container").style.display = "block";
             document.getElementById("menu-destinos").style.display = "grid";
+            document.getElementById("titulo-destinos").style.display = "block";
             
-            falar("Sistema iniciado. Por favor, escolha para onde deseja ir.");
+            falar("Iniciando sistema. Por favor, escolha seu destino.");
 
-            const modelURL = URL + "model.json";
-            const metadataURL = URL + "metadata.json";
-
-            model = await tmImage.load(modelURL, metadataURL);
-            maxPredictions = model.getTotalClasses();
-
+            model = await tmImage.load(MODEL_URL + "model.json", MODEL_URL + "metadata.json");
+            
             webcam = new tmImage.Webcam(280, 280, true);
             await webcam.setup({ facingMode: "environment" });
             await webcam.play();
-            
             document.getElementById("webcam-container").appendChild(webcam.canvas);
+            
             gerarMenu();
             window.requestAnimationFrame(loop);
         }
@@ -162,57 +228,52 @@
             let melhorClasse = "";
             let maiorProb = 0;
 
-            for (let i = 0; i < maxPredictions; i++) {
-                // Filtro de confiança alta (90%) para evitar avisos falsos
-                if (prediction[i].probability > 0.90 && prediction[i].probability > maiorProb) {
+            for (let i = 0; i < model.getTotalClasses(); i++) {
+                if (prediction[i].probability > 0.85 && prediction[i].probability > maiorProb) {
                     maiorProb = prediction[i].probability;
                     melhorClasse = prediction[i].className;
                 }
             }
 
-            // Normalização: remove espaços e ignora classes genéricas (Background/Class 1)
-            const classeLimpa = melhorClasse.trim();
-            if (classeLimpa !== "" && 
-                classeLimpa !== "Class 1" && 
-                classeLimpa !== "Background" && 
-                classeLimpa !== ultimaClasseFalada) {
-                
-                ultimaClasseFalada = classeLimpa;
-                document.getElementById("local-atual").innerText = classeLimpa;
-                processarNavegacao(classeLimpa);
+            if (melhorClasse !== "" && melhorClasse !== ultimaClasseFalada) {
+                ultimaClasseFalada = melhorClasse;
+                document.getElementById("local-atual").innerText = "📍 Local: " + melhorClasse;
+                processarNavegacao(melhorClasse);
             }
         }
 
-        function processarNavegacao(localIdentificado) {
+        function processarNavegacao(posicaoAtual) {
             if (!destinoAtual) {
-                falar("Você está em " + localIdentificado);
+                falar("Você está em " + posicaoAtual + ". Selecione um destino.");
                 return;
             }
 
-            // Busca no mapa ignorando diferenças de maiúsculas/minúsculas
-            const chaveOrigem = Object.keys(mapaPassos).find(k => k.toLowerCase() === localIdentificado.toLowerCase());
-            const chaveDestino = Object.keys(mapaPassos).find(k => k.toLowerCase() === destinoAtual.toLowerCase());
-
-            if (!chaveOrigem || !chaveDestino) return;
-
-            const distOrigem = mapaPassos[chaveOrigem];
-            const distDestino = mapaPassos[chaveDestino];
-            const diferenca = distDestino - distOrigem;
-
-            if (diferenca > 10) { 
-                falar(`${chaveOrigem}. Siga em frente ${diferenca} passos.`);
-            } else if (diferenca < -10) {
-                falar(`${chaveOrigem}. O destino ficou para trás. Volte ${Math.abs(diferenca)} passos.`);
+            // AVISO DE SEGURANÇA: Rampa Maior -> Pátio
+            if (posicaoAtual === "Rampa maior" && (destinoAtual === "Patio" || destinoAtual === "Caminho para o patio")) {
+                falar("Atenção! Não suba a rampa. Siga reto para a rampa menor.");
+                document.getElementById("proximo-passo").innerText = "⚠ NÃO SUBA! SIGA RETO";
+                document.getElementById("proximo-passo").style.color = "#ff4444";
+                return;
             } else {
-                falar(`Você chegou ao destino: ${chaveDestino}.`);
-                // Limpa o destino após chegar
-                destinoAtual = null;
-                document.getElementById("instrucao").innerText = "Você chegou!";
-                document.querySelectorAll('.btn-destino').forEach(b => b.classList.remove('ativo'));
+                document.getElementById("proximo-passo").style.color = "#00ff88";
+            }
+
+            if (posicaoAtual === destinoAtual) {
+                falar("Você chegou ao seu destino: " + destinoAtual);
+                document.getElementById("proximo-passo").innerText = "VOCÊ CHEGOU!";
+                return;
+            }
+
+            const caminho = algoritmoAStar(posicaoAtual, destinoAtual);
+            
+            if (caminho && caminho.length > 1) {
+                const proximoPonto = caminho[1];
+                document.getElementById("proximo-passo").innerText = "Siga para: " + proximoPonto;
+                falar("Siga de " + posicaoAtual + " para " + proximoPonto);
+            } else {
+                falar("Caminho não encontrado. Tente se reposicionar.");
             }
         }
-
-        window.speechSynthesis.onvoiceschanged = () => { synth.getVoices(); };
     </script>
 </body>
 </html>
