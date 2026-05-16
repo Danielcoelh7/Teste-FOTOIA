@@ -3,44 +3,46 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Teste de Navegação - Indoor Federal</title>
+    <title>Navegador Indoor Federal - Final</title>
     <style>
         body { font-family: sans-serif; background: #000; color: white; display: flex; flex-direction: column; align-items: center; padding: 20px; }
-        #webcam-container { width: 200px; height: 200px; border: 2px solid #444; border-radius: 20px; overflow: hidden; margin-bottom: 20px; display: none; }
+        #webcam-container { width: 220px; height: 220px; border: 3px solid #00ff88; border-radius: 20px; overflow: hidden; margin-bottom: 20px; display: none; background: #111; }
         
-        .painel-teste { background: #222; padding: 15px; border-radius: 15px; width: 100%; max-width: 450px; margin-bottom: 20px; border: 1px dashed #777; }
+        .painel-teste { background: #1a1a1a; padding: 15px; border-radius: 15px; width: 100%; max-width: 450px; margin-bottom: 20px; border: 1px dashed #444; }
         .grid-botoes { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 10px; }
         
-        button { padding: 12px; border-radius: 8px; border: none; cursor: pointer; font-weight: bold; font-size: 0.8rem; }
+        button { padding: 12px; border-radius: 8px; border: none; cursor: pointer; font-weight: bold; font-size: 0.8rem; transition: 0.2s; }
         .btn-start { background: #00ff88; color: #000; width: 100%; margin-bottom: 20px; font-size: 1.1rem; }
-        .btn-local { background: #333; color: #fff; border: 1px solid #555; }
-        .btn-local.origem-ativa { background: #ffaa00; color: #000; }
-        .btn-local.destino-ativo { background: #00ff88; color: #000; }
+        .btn-local { background: #333; color: #fff; border: 1px solid #444; }
+        .btn-local.origem-ativa { background: #ffaa00; color: #000; border-color: #fff; }
+        .btn-local.destino-ativo { background: #00ff88; color: #000; border-color: #fff; }
 
-        #status-box { padding: 20px; background: #111; border-radius: 15px; text-align: center; width: 100%; max-width: 400px; border: 2px solid #00ff88; }
-        #direcao-texto { font-size: 1.4rem; color: #00ff88; font-weight: bold; margin: 10px 0; min-height: 1.5em; }
-        h4 { margin: 5px 0; color: #aaa; text-transform: uppercase; font-size: 0.7rem; }
+        #status-box { padding: 20px; background: #111; border-radius: 15px; text-align: center; width: 100%; max-width: 400px; border: 2px solid #00ff88; box-shadow: 0 0 15px rgba(0,255,136,0.2); }
+        #direcao-texto { font-size: 1.5rem; color: #00ff88; font-weight: bold; margin: 10px 0; min-height: 1.5em; text-transform: uppercase; }
+        #instrucao { color: #ccc; font-size: 0.9rem; }
+        h4 { margin: 5px 0; color: #00ff88; text-transform: uppercase; font-size: 0.75rem; letter-spacing: 1px; }
     </style>
 </head>
 <body>
 
-    <h1>Simulador de Navegação</h1>
-    <button class="btn-start" id="btn-init" onclick="init()">LIGAR CÂMERA (OPCIONAL)</button>
-
-    <div class="painel-teste">
-        <h4>1. Onde você está agora? (Simular Origem)</h4>
-        <div class="grid-botoes" id="menu-origem"></div>
-        
-        <h4 style="margin-top:20px;">2. Para onde quer ir? (Destino)</h4>
-        <div class="grid-botoes" id="menu-destino"></div>
-    </div>
+    <h1>Assistente de Navegação</h1>
+    
+    <button class="btn-start" id="btn-init" onclick="init()">ATIVAR CÂMERA E VOZ</button>
 
     <div id="webcam-container"></div>
 
     <div id="status-box">
-        <div id="instrucao">Selecione Origem e Destino no painel acima</div>
+        <div id="instrucao">Selecione um destino abaixo</div>
         <div id="direcao-texto">---</div>
-        <div id="local-atual" style="font-size: 0.8rem; color: #888;">Modo Simulação</div>
+        <div id="local-atual" style="font-size: 0.85rem; color: #888;">Modo Simulação Ativo</div>
+    </div>
+
+    <div class="painel-teste" style="margin-top: 20px;">
+        <h4>1. Onde você está? (Origem/Teste)</h4>
+        <div class="grid-botoes" id="menu-origem"></div>
+        
+        <h4 style="margin-top:20px;">2. Para onde deseja ir? (Destino)</h4>
+        <div class="grid-botoes" id="menu-destino"></div>
     </div>
 
     <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@latest/dist/tf.min.js"></script>
@@ -49,7 +51,7 @@
     <script>
         const MODEL_URL = "https://teachablemachine.withgoogle.com/models/qvqu9nB4J/";
         
-        // Dados baseados nos seus arquivos [cite: 3, 4, 7]
+        // Base de dados consolidada (Coordenadas + Vizinhos)
         const locais = {
             "Portaria": { x: 439, y: 18, vizinhos: ["Caminho entrada"], silencioso: false },
             "Caminho entrada": { x: 434, y: 107, vizinhos: ["Portaria", "ConexaoA", "Curva Rampa Maior"], silencioso: false },
@@ -60,20 +62,21 @@
             "Caminho para o patio": { x: 523, y: 427, vizinhos: ["Rampa menor", "patio"], silencioso: false },
             "patio": { x: 534, y: 512, vizinhos: ["Caminho para o patio"], silencioso: false },
 
-            // Nós de curva [cite: 3]
+            // Nós de curva e conexão (Auxiliam o A* sem poluir a voz)
             "ConexaoA": { x: 222, y: 256, vizinhos: ["Caminho entrada", "Refeitorio fora"], silencioso: true },
             "Curva Rampa Maior": { x: 219, y: 425, vizinhos: ["Caminho entrada", "Rampa maior", "Saida do refeitório"], silencioso: true },
             "Curva rampa menor": { x: 220, y: 488, vizinhos: ["Curva Rampa Maior", "Rampa menor"], silencioso: true },
             "Saida do refeitório": { x: 107, y: 418, vizinhos: ["Refeitorio", "Curva Rampa Maior"], silencioso: true }
         };
 
-        let model, webcam, destinoAtual = null, posicaoSimulada = null, ultimaClasseFalada = "";
+        let model, webcam, destinoAtual = null, localIdentificado = null, ultimaFala = "";
         const synth = window.speechSynthesis;
 
         function calcularDistancia(a, b) {
             return Math.sqrt(Math.pow(locais[a].x - locais[b].x, 2) + Math.pow(locais[a].y - locais[b].y, 2));
         }
 
+        // Algoritmo A* para encontrar o caminho mais curto
         function algoritmoAStar(inicio, fim) {
             let openSet = [inicio], veioDe = {}, gScore = {}, fScore = {};
             Object.keys(locais).forEach(l => { gScore[l] = Infinity; fScore[l] = Infinity; });
@@ -103,46 +106,51 @@
         }
 
         function falar(texto) {
+            if (texto === ultimaFala) return; // Evita repetição infinita
+            ultimaFala = texto;
             synth.cancel();
             const utter = new SpeechSynthesisUtterance(texto);
             utter.lang = 'pt-BR';
             synth.speak(utter);
         }
 
-        function processarNavegacao(posicaoAtual) {
-            if (!destinoAtual) return;
+        // Função principal que decide o que dizer ao usuário
+        function atualizarNavegacao(posicaoAtual) {
+            if (!destinoAtual) {
+                falar("Você está em " + posicaoAtual + ". Para onde deseja ir?");
+                return;
+            }
 
-            // Alerta Rampa Maior -> Pátio
+            // Regra de segurança específica para a Rampa
             if (posicaoAtual === "Rampa maior" && (destinoAtual === "patio" || destinoAtual === "Caminho para o patio")) {
-                falar("Atenção: não suba! Siga reto para a rampa menor.");
                 document.getElementById("direcao-texto").innerText = "⚠ NÃO SUBA! SIGA RETO";
+                falar("Atenção: não suba! Siga reto para a rampa menor.");
                 return;
             }
 
             if (posicaoAtual === destinoAtual) {
-                falar("Você chegou ao destino.");
-                document.getElementById("direcao-texto").innerText = "CHEGOU!";
+                document.getElementById("direcao-texto").innerText = "VOCÊ CHEGOU!";
+                falar("Você chegou ao seu destino.");
                 return;
             }
 
             const caminho = algoritmoAStar(posicaoAtual, destinoAtual);
             if (caminho && caminho.length > 1) {
                 const proximo = caminho[1];
-                let instrucao = locais[proximo].silencioso ? "Siga pelo caminho" : "Vá para " + proximo;
+                let instrucao = locais[proximo].silencioso ? "Siga pelo caminho atual" : "Siga para " + proximo;
+                
                 document.getElementById("direcao-texto").innerText = proximo;
                 falar(instrucao);
-            } else {
-                document.getElementById("direcao-texto").innerText = "Caminho não encontrado";
             }
         }
 
-        // --- FUNÇÕES DO SIMULADOR ---
-        function setOrigem(local) {
-            posicaoSimulada = local;
+        // Controle dos Botões de Teste
+        function manualSetOrigem(local) {
+            localIdentificado = local;
             document.querySelectorAll('#menu-origem .btn-local').forEach(b => b.classList.remove('origem-ativa'));
             event.target.classList.add('origem-ativa');
-            document.getElementById("local-atual").innerText = "Simulando em: " + local;
-            processarNavegacao(local);
+            document.getElementById("local-atual").innerText = "📍 Localização: " + local;
+            atualizarNavegacao(local);
         }
 
         function setDestino(local) {
@@ -150,63 +158,69 @@
             document.querySelectorAll('#menu-destino .btn-local').forEach(b => b.classList.remove('destino-ativo'));
             event.target.classList.add('destino-ativo');
             document.getElementById("instrucao").innerText = "Indo para: " + local;
-            if(posicaoSimulada) processarNavegacao(posicaoSimulada);
+            if(localIdentificado) atualizarNavegacao(localIdentificado);
         }
 
-        function montarMenus() {
-            const mOrigem = document.getElementById("menu-origem");
-            const mDestino = document.getElementById("menu-destino");
-            
-            Object.keys(locais).forEach(local => {
-                // Botão de Origem (inclui curvas para você testar se o cálculo funciona nelas)
-                const btnO = document.createElement("button");
-                btnO.className = "btn-local";
-                btnO.innerText = local;
-                btnO.onclick = (e) => setOrigem(local);
-                mOrigem.appendChild(btnO);
-
-                // Botão de Destino (apenas locais reais)
-                if (!locais[local].silencioso) {
-                    const btnD = document.createElement("button");
-                    btnD.className = "btn-local";
-                    btnD.innerText = local;
-                    btnD.onclick = (e) => setDestino(local);
-                    mDestino.appendChild(btnD);
-                }
-            });
-        }
-
-        async function init() {
-            document.getElementById("btn-init").innerText = "CARREGANDO MODELO...";
-            model = await tmImage.load(MODEL_URL + "model.json", MODEL_URL + "metadata.json");
-            webcam = new tmImage.Webcam(200, 200, true);
-            await webcam.setup({ facingMode: "environment" });
-            await webcam.play();
-            document.getElementById("webcam-container").style.display = "block";
-            document.getElementById("webcam-container").appendChild(webcam.canvas);
-            document.getElementById("btn-init").style.display = "none";
-            window.requestAnimationFrame(loop);
-        }
-
-        async function loop() { 
-            webcam.update(); 
+        // IA: Visão Computacional
+        async function predict() {
             const prediction = await model.predict(webcam.canvas);
             let melhor = "", max = 0;
             for(let i=0; i<model.getTotalClasses(); i++) {
-                if(prediction[i].probability > 0.90 && prediction[i].probability > max) {
+                if(prediction[i].probability > 0.85 && prediction[i].probability > max) {
                     max = prediction[i].probability; melhor = prediction[i].className;
                 }
             }
-            if(melhor !== "" && melhor !== ultimaClasseFalada) {
-                ultimaClasseFalada = melhor;
-                posicaoSimulada = melhor; // Câmera sobrescreve a simulação manual
-                document.getElementById("local-atual").innerText = "📍 Câmera: " + melhor;
-                processarNavegacao(melhor);
+
+            if(melhor !== "" && melhor !== localIdentificado) {
+                localIdentificado = melhor;
+                document.getElementById("local-atual").innerText = "📷 Câmera detectou: " + melhor;
+                atualizarNavegacao(melhor);
             }
-            window.requestAnimationFrame(loop); 
         }
 
-        window.onload = montarMenus;
+        async function init() {
+            document.getElementById("btn-init").innerText = "CARREGANDO SISTEMA...";
+            model = await tmImage.load(MODEL_URL + "model.json", MODEL_URL + "metadata.json");
+            
+            webcam = new tmImage.Webcam(220, 220, true);
+            await webcam.setup({ facingMode: "environment" });
+            await webcam.play();
+            
+            document.getElementById("webcam-container").style.display = "block";
+            document.getElementById("webcam-container").appendChild(webcam.canvas);
+            document.getElementById("btn-init").style.display = "none";
+            
+            window.requestAnimationFrame(loop);
+            falar("Sistema pronto. Por favor, escolha um destino.");
+        }
+
+        async function loop() {
+            webcam.update();
+            await predict();
+            window.requestAnimationFrame(loop);
+        }
+
+        // Gera a interface de botões automaticamente
+        window.onload = () => {
+            const mOrigem = document.getElementById("menu-origem");
+            const mDestino = document.getElementById("menu-destino");
+            
+            Object.keys(locais).forEach(l => {
+                // Menu Origem
+                const btnO = document.createElement("button");
+                btnO.className = "btn-local"; btnO.innerText = l;
+                btnO.onclick = (e) => manualSetOrigem(l);
+                mOrigem.appendChild(btnO);
+
+                // Menu Destino (esconde as curvas técnicas)
+                if (!locais[l].silencioso) {
+                    const btnD = document.createElement("button");
+                    btnD.className = "btn-local"; btnD.innerText = l;
+                    btnD.onclick = (e) => setDestino(l);
+                    mDestino.appendChild(btnD);
+                }
+            });
+        };
     </script>
 </body>
 </html>
