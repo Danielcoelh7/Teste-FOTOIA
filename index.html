@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Navegador Indoor Federal - Final</title>
+    <title>Navegador Indoor Federal - Final (3D)</title>
     <style>
         body { font-family: sans-serif; background: #000; color: white; display: flex; flex-direction: column; align-items: center; padding: 20px; }
         #webcam-container { width: 220px; height: 220px; border: 3px solid #00ff88; border-radius: 20px; overflow: hidden; margin-bottom: 20px; display: none; background: #111; }
@@ -21,6 +21,9 @@
         #direcao-texto { font-size: 1.5rem; color: #00ff88; font-weight: bold; margin: 10px 0; min-height: 1.5em; text-transform: uppercase; }
         #instrucao { color: #ccc; font-size: 0.9rem; }
         h4 { margin: 5px 0; color: #00ff88; text-transform: uppercase; font-size: 0.75rem; letter-spacing: 1px; }
+        
+        .alerta-andar { display: none; margin-top: 10px; padding: 10px; background: rgba(255, 170, 0, 0.2); border: 2px solid #ffaa00; border-radius: 8px; color: #ffaa00; font-weight: bold; text-transform: uppercase; font-size: 0.9rem; animation: piscar 1.5s infinite; }
+        @keyframes piscar { 50% { opacity: 0.6; } }
     </style>
 </head>
 <body>
@@ -34,7 +37,8 @@
     <div id="status-box">
         <div id="instrucao">Selecione um destino abaixo</div>
         <div id="direcao-texto">---</div>
-        <div id="local-atual" style="font-size: 0.85rem; color: #888;">Modo Simulação Ativo</div>
+        <div id="alerta-andar" class="alerta-andar">⚠️ Mudança de Andar</div>
+        <div id="local-atual" style="font-size: 0.85rem; color: #888; margin-top: 10px;">Modo Simulação Ativo</div>
     </div>
 
     <div class="painel-teste" style="margin-top: 20px;">
@@ -51,32 +55,40 @@
     <script>
         const MODEL_URL = "https://teachablemachine.withgoogle.com/models/qvqu9nB4J/";
         
-        // Base de dados consolidada (Coordenadas + Vizinhos)
+        // Base de dados Tridimensional estritamente com os dados fornecidos
         const locais = {
-            "Portaria": { x: 439, y: 18, vizinhos: ["Caminho entrada"], silencioso: false },
-            "Caminho entrada": { x: 434, y: 107, vizinhos: ["Portaria", "ConexaoA", "Curva Rampa Maior"], silencioso: false },
-            "Refeitorio fora": { x: 373, y: 191, vizinhos: ["ConexaoA", "Refeitorio"], silencioso: false },
-            "Refeitorio": { x: 328, y: 258, vizinhos: ["Refeitorio fora", "Saida do refeitório"], silencioso: false },
-            "Rampa maior": { x: 443, y: 369, vizinhos: ["Curva Rampa Maior", "Curva rampa menor"], silencioso: false },
-            "Rampa menor": { x: 413, y: 427, vizinhos: ["Curva rampa menor", "Caminho para o patio"], silencioso: false },
-            "Caminho para o patio": { x: 523, y: 427, vizinhos: ["Rampa menor", "patio"], silencioso: false },
-            "patio": { x: 534, y: 512, vizinhos: ["Caminho para o patio"], silencioso: false },
+            // Primeiro Andar (Térreo - z: 0)
+            "Portaria": { x: 439, y: 18, z: 0, vizinhos: ["Caminho entrada"], silencioso: false },
+            "Caminho entrada": { x: 434, y: 107, z: 0, vizinhos: ["Portaria", "ConexaoA", "Curva Rampa Maior"], silencioso: false },
+            "Refeitorio fora": { x: 373, y: 191, z: 0, vizinhos: ["ConexaoA", "Refeitorio"], silencioso: false },
+            "Refeitorio": { x: 328, y: 258, z: 0, vizinhos: ["Refeitorio fora", "Saida do refeitório"], silencioso: false },
+            
+            // Ponto mapeado para conexão futura do eixo Z
+            "Rampa maior": { x: 443, y: 369, z: 0, vizinhos: ["Curva Rampa Maior", "Curva rampa menor"], silencioso: false }, 
+            
+            "Rampa menor": { x: 413, y: 427, z: 0, vizinhos: ["Curva rampa menor", "Caminho para o patio"], silencioso: false },
+            "Caminho para o patio": { x: 523, y: 427, z: 0, vizinhos: ["Rampa menor", "patio"], silencioso: false },
+            "patio": { x: 534, y: 512, z: 0, vizinhos: ["Caminho para o patio"], silencioso: false },
 
-            // Nós de curva e conexão (Auxiliam o A* sem poluir a voz)
-            "ConexaoA": { x: 222, y: 256, vizinhos: ["Caminho entrada", "Refeitorio fora"], silencioso: true },
-            "Curva Rampa Maior": { x: 219, y: 425, vizinhos: ["Caminho entrada", "Rampa maior", "Saida do refeitório"], silencioso: true },
-            "Curva rampa menor": { x: 220, y: 488, vizinhos: ["Curva Rampa Maior", "Rampa menor"], silencioso: true },
-            "Saida do refeitório": { x: 107, y: 418, vizinhos: ["Refeitorio", "Curva Rampa Maior"], silencioso: true }
+            // Nós de curva e conexão (Térreo)
+            "ConexaoA": { x: 222, y: 256, z: 0, vizinhos: ["Caminho entrada", "Refeitorio fora"], silencioso: true },
+            "Curva Rampa Maior": { x: 219, y: 425, z: 0, vizinhos: ["Caminho entrada", "Rampa maior", "Saida do refeitório"], silencioso: true },
+            "Curva rampa menor": { x: 220, y: 488, z: 0, vizinhos: ["Curva Rampa Maior", "Rampa menor"], silencioso: true },
+            "Saida do refeitório": { x: 107, y: 418, z: 0, vizinhos: ["Refeitorio", "Curva Rampa Maior"], silencioso: true }
         };
 
         let model, webcam, destinoAtual = null, localIdentificado = null, ultimaFala = "";
         const synth = window.speechSynthesis;
 
+        // Cálculo de distância Tridimensional (X, Y e Z) mantido
         function calcularDistancia(a, b) {
-            return Math.sqrt(Math.pow(locais[a].x - locais[b].x, 2) + Math.pow(locais[a].y - locais[b].y, 2));
+            return Math.sqrt(
+                Math.pow(locais[a].x - locais[b].x, 2) + 
+                Math.pow(locais[a].y - locais[b].y, 2) + 
+                Math.pow(locais[a].z - locais[b].z, 2)
+            );
         }
 
-        // Algoritmo A* para encontrar o caminho mais curto
         function algoritmoAStar(inicio, fim) {
             let openSet = [inicio], veioDe = {}, gScore = {}, fScore = {};
             Object.keys(locais).forEach(l => { gScore[l] = Infinity; fScore[l] = Infinity; });
@@ -106,7 +118,7 @@
         }
 
         function falar(texto) {
-            if (texto === ultimaFala) return; // Evita repetição infinita
+            if (texto === ultimaFala) return; 
             ultimaFala = texto;
             synth.cancel();
             const utter = new SpeechSynthesisUtterance(texto);
@@ -114,17 +126,12 @@
             synth.speak(utter);
         }
 
-        // Função principal que decide o que dizer ao usuário
         function atualizarNavegacao(posicaoAtual) {
+            const alertaUI = document.getElementById("alerta-andar");
+            alertaUI.style.display = "none";
+
             if (!destinoAtual) {
                 falar("Você está em " + posicaoAtual + ". Para onde deseja ir?");
-                return;
-            }
-
-            // Regra de segurança específica para a Rampa
-            if (posicaoAtual === "Rampa maior" && (destinoAtual === "patio" || destinoAtual === "Caminho para o patio")) {
-                document.getElementById("direcao-texto").innerText = "⚠ NÃO SUBA! SIGA RETO";
-                falar("Atenção: não suba! Siga reto para a rampa menor.");
                 return;
             }
 
@@ -139,12 +146,25 @@
                 const proximo = caminho[1];
                 let instrucao = locais[proximo].silencioso ? "Siga pelo caminho atual" : "Siga para " + proximo;
                 
+                // Lógica de interface e voz para o eixo Z mantida para quando os nós reais forem adicionados
+                const zAtual = locais[posicaoAtual].z;
+                const zProximo = locais[proximo].z;
+
+                if (zProximo > zAtual) {
+                    alertaUI.style.display = "block";
+                    alertaUI.innerText = "⚠️ Suba a rampa para o segundo andar";
+                    instrucao = "Suba a rampa em direção a " + proximo;
+                } else if (zProximo < zAtual) {
+                    alertaUI.style.display = "block";
+                    alertaUI.innerText = "⚠️ Desça a rampa para o térreo";
+                    instrucao = "Desça a rampa em direção a " + proximo;
+                }
+
                 document.getElementById("direcao-texto").innerText = proximo;
                 falar(instrucao);
             }
         }
 
-        // Controle dos Botões de Teste
         function manualSetOrigem(local) {
             localIdentificado = local;
             document.querySelectorAll('#menu-origem .btn-local').forEach(b => b.classList.remove('origem-ativa'));
@@ -161,7 +181,6 @@
             if(localIdentificado) atualizarNavegacao(localIdentificado);
         }
 
-        // IA: Visão Computacional
         async function predict() {
             const prediction = await model.predict(webcam.canvas);
             let melhor = "", max = 0;
@@ -172,9 +191,11 @@
             }
 
             if(melhor !== "" && melhor !== localIdentificado) {
-                localIdentificado = melhor;
-                document.getElementById("local-atual").innerText = "📷 Câmera detectou: " + melhor;
-                atualizarNavegacao(melhor);
+                if(locais[melhor]) {
+                    localIdentificado = melhor;
+                    document.getElementById("local-atual").innerText = "📷 Câmera detectou: " + melhor;
+                    atualizarNavegacao(melhor);
+                }
             }
         }
 
@@ -200,19 +221,16 @@
             window.requestAnimationFrame(loop);
         }
 
-        // Gera a interface de botões automaticamente
         window.onload = () => {
             const mOrigem = document.getElementById("menu-origem");
             const mDestino = document.getElementById("menu-destino");
             
             Object.keys(locais).forEach(l => {
-                // Menu Origem
                 const btnO = document.createElement("button");
                 btnO.className = "btn-local"; btnO.innerText = l;
                 btnO.onclick = (e) => manualSetOrigem(l);
                 mOrigem.appendChild(btnO);
 
-                // Menu Destino (esconde as curvas técnicas)
                 if (!locais[l].silencioso) {
                     const btnD = document.createElement("button");
                     btnD.className = "btn-local"; btnD.innerText = l;
