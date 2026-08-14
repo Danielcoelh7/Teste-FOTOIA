@@ -28,7 +28,7 @@
 </head>
 <body>
 
-    <h1>Assistente de Navegação</h1>
+    <h1>Assistente de Navegação 3D</h1>
     
     <button class="btn-start" id="btn-init" onclick="init()">ATIVAR CÂMERA E VOZ</button>
 
@@ -42,7 +42,7 @@
     </div>
 
     <div class="painel-teste" style="margin-top: 20px;">
-        <h4>1. Onde você está? (Origem/Teste)</h4>
+        <h4>1. Onde você está? (Origem)</h4>
         <div class="grid-botoes" id="menu-origem"></div>
         
         <h4 style="margin-top:20px;">2. Para onde deseja ir? (Destino)</h4>
@@ -55,37 +55,55 @@
     <script>
         const MODEL_URL = "https://teachablemachine.withgoogle.com/models/qvqu9nB4J/";
         
-        // Base de dados Tridimensional estritamente com os dados fornecidos
+        // Base de dados Integrada (Antigas + Novas do Eixo Z)
         const locais = {
-            // Primeiro Andar (Térreo - z: 0)
+            // NÓS ANTIGOS (Térreo - z: 0)
             "Portaria": { x: 439, y: 18, z: 0, vizinhos: ["Caminho entrada"], silencioso: false },
             "Caminho entrada": { x: 434, y: 107, z: 0, vizinhos: ["Portaria", "ConexaoA", "Curva Rampa Maior"], silencioso: false },
             "Refeitorio fora": { x: 373, y: 191, z: 0, vizinhos: ["ConexaoA", "Refeitorio"], silencioso: false },
             "Refeitorio": { x: 328, y: 258, z: 0, vizinhos: ["Refeitorio fora", "Saida do refeitório"], silencioso: false },
-            
-            // Ponto mapeado para conexão futura do eixo Z
             "Rampa maior": { x: 443, y: 369, z: 0, vizinhos: ["Curva Rampa Maior", "Curva rampa menor"], silencioso: false }, 
-            
             "Rampa menor": { x: 413, y: 427, z: 0, vizinhos: ["Curva rampa menor", "Caminho para o patio"], silencioso: false },
             "Caminho para o patio": { x: 523, y: 427, z: 0, vizinhos: ["Rampa menor", "patio"], silencioso: false },
-            "patio": { x: 534, y: 512, z: 0, vizinhos: ["Caminho para o patio"], silencioso: false },
+            "patio": { x: 534, y: 512, z: 0, vizinhos: ["Caminho para o patio", "patio_central"], silencioso: false }, // Link opcional com a nova estrutura
 
-            // Nós de curva e conexão (Térreo)
             "ConexaoA": { x: 222, y: 256, z: 0, vizinhos: ["Caminho entrada", "Refeitorio fora"], silencioso: true },
             "Curva Rampa Maior": { x: 219, y: 425, z: 0, vizinhos: ["Caminho entrada", "Rampa maior", "Saida do refeitório"], silencioso: true },
             "Curva rampa menor": { x: 220, y: 488, z: 0, vizinhos: ["Curva Rampa Maior", "Rampa menor"], silencioso: true },
-            "Saida do refeitório": { x: 107, y: 418, z: 0, vizinhos: ["Refeitorio", "Curva Rampa Maior"], silencioso: true }
+            "Saida do refeitório": { x: 107, y: 418, z: 0, vizinhos: ["Refeitorio", "Curva Rampa Maior"], silencioso: true },
+
+            // NOVOS NÓS - ANDAR TÉRREO (Z = 0)
+            "biblioteca": { x: 200, y: 600, z: 0, vizinhos: ["corredor biblioteca"], silencioso: false },
+            "corredor biblioteca": { x: 300, y: 600, z: 0, vizinhos: ["caminho_centro", "biblioteca"], silencioso: false },
+            "caminho_centro": { x: 400, y: 600, z: 0, vizinhos: ["corredor biblioteca", "patio_central", "caminho_cantina", "escada", "rampa0"], silencioso: false },
+            "caminho_cantina": { x: 400, y: 700, z: 0, vizinhos: ["caminho_centro", "patio_central", "cantina"], silencioso: false },
+            "cantina": { x: 400, y: 800, z: 0, vizinhos: ["caminho_cantina"], silencioso: false },
+            "escada": { x: 450, y: 650, z: 0, vizinhos: ["patio_central", "caminho_centro"], silencioso: false },
+            "patio_central": { x: 500, y: 600, z: 0, vizinhos: ["escada", "caminho_centro", "rampa0", "caminho_cantina", "patio"], silencioso: false },
+            
+            // CONEXÕES DE ANDAR (Z = 0, 1 e 2)
+            "rampa0": { x: 600, y: 600, z: 0, vizinhos: ["patio_central", "caminho_centro", "rampa2"], silencioso: false },
+            "rampa2": { x: 600, y: 600, z: 1, vizinhos: ["rampa0", "corredor central", "rampa3"], silencioso: false },
+            "rampa3": { x: 650, y: 600, z: 1, vizinhos: ["rampa2", "rampa4", "corredor central"], silencioso: false },
+            "rampa4": { x: 700, y: 600, z: 2, vizinhos: ["rampa3"], silencioso: false },
+
+            // NOVOS NÓS - ANDAR SUPERIOR (Z = 1)
+            "corredor central": { x: 600, y: 500, z: 1, vizinhos: ["centro principal", "rampa2", "rampa3"], silencioso: false },
+            "centro principal": { x: 700, y: 500, z: 1, vizinhos: ["corredor central", "corredor esquerda"], silencioso: false },
+            "corredor esquerda": { x: 800, y: 500, z: 1, vizinhos: ["centro principal"], silencioso: false }
         };
 
         let model, webcam, destinoAtual = null, localIdentificado = null, ultimaFala = "";
         const synth = window.speechSynthesis;
 
-        // Cálculo de distância Tridimensional (X, Y e Z) mantido
+        // CÁLCULO DE DISTÂNCIA CORRIGIDO (Multiplicador de Z adicionado)
+        // Multiplicar o eixo Z por 150 garante que o algoritmo entenda que
+        // mudar de andar "custa" mais distância do que andar reto.
         function calcularDistancia(a, b) {
             return Math.sqrt(
                 Math.pow(locais[a].x - locais[b].x, 2) + 
                 Math.pow(locais[a].y - locais[b].y, 2) + 
-                Math.pow(locais[a].z - locais[b].z, 2)
+                Math.pow((locais[a].z - locais[b].z) * 150, 2) 
             );
         }
 
@@ -104,7 +122,10 @@
                 openSet = openSet.filter(item => item !== atual);
                 
                 locais[atual].vizinhos.forEach(v => {
-                    if (!locais[v]) return;
+                    if (!locais[v]) {
+                        console.warn("Vizinho não encontrado: ", v, " no nó: ", atual);
+                        return;
+                    }
                     let tentativeGScore = gScore[atual] + calcularDistancia(atual, v);
                     if (tentativeGScore < gScore[v]) {
                         veioDe[v] = atual;
@@ -146,22 +167,25 @@
                 const proximo = caminho[1];
                 let instrucao = locais[proximo].silencioso ? "Siga pelo caminho atual" : "Siga para " + proximo;
                 
-                // Lógica de interface e voz para o eixo Z mantida para quando os nós reais forem adicionados
                 const zAtual = locais[posicaoAtual].z;
                 const zProximo = locais[proximo].z;
 
+                // Dinâmica de andares corrigida para ler múltiplos níveis!
                 if (zProximo > zAtual) {
                     alertaUI.style.display = "block";
-                    alertaUI.innerText = "⚠️ Suba a rampa para o segundo andar";
-                    instrucao = "Suba a rampa em direção a " + proximo;
+                    alertaUI.innerText = `⚠️ Suba para o andar ${zProximo}`;
+                    instrucao = "Suba a rampa ou escada em direção a " + proximo;
                 } else if (zProximo < zAtual) {
                     alertaUI.style.display = "block";
-                    alertaUI.innerText = "⚠️ Desça a rampa para o térreo";
-                    instrucao = "Desça a rampa em direção a " + proximo;
+                    alertaUI.innerText = `⚠️ Desça para o andar ${zProximo}`;
+                    instrucao = "Desça em direção a " + proximo;
                 }
 
                 document.getElementById("direcao-texto").innerText = proximo;
                 falar(instrucao);
+            } else {
+                document.getElementById("direcao-texto").innerText = "CAMINHO INACESSÍVEL";
+                falar("Não encontrei um caminho válido.");
             }
         }
 
@@ -182,6 +206,7 @@
         }
 
         async function predict() {
+            if(!model || !webcam.canvas) return;
             const prediction = await model.predict(webcam.canvas);
             let melhor = "", max = 0;
             for(let i=0; i<model.getTotalClasses(); i++) {
@@ -226,17 +251,17 @@
             const mDestino = document.getElementById("menu-destino");
             
             Object.keys(locais).forEach(l => {
+                if(locais[l].silencioso) return; // Nós de curva não aparecem nos botões
+                
                 const btnO = document.createElement("button");
-                btnO.className = "btn-local"; btnO.innerText = l;
+                btnO.className = "btn-local"; btnO.innerText = l + (locais[l].z > 0 ? ` (Andar ${locais[l].z})` : "");
                 btnO.onclick = (e) => manualSetOrigem(l);
                 mOrigem.appendChild(btnO);
 
-                if (!locais[l].silencioso) {
-                    const btnD = document.createElement("button");
-                    btnD.className = "btn-local"; btnD.innerText = l;
-                    btnD.onclick = (e) => setDestino(l);
-                    mDestino.appendChild(btnD);
-                }
+                const btnD = document.createElement("button");
+                btnD.className = "btn-local"; btnD.innerText = l + (locais[l].z > 0 ? ` (Andar ${locais[l].z})` : "");
+                btnD.onclick = (e) => setDestino(l);
+                mDestino.appendChild(btnD);
             });
         };
     </script>
