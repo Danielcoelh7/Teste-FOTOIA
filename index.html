@@ -3,16 +3,17 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Navegador Indoor Federal - Final (3D)</title>
+    <title>Navegador Indoor Federal - Teste de Fotos (3D)</title>
     <style>
         body { font-family: sans-serif; background: #000; color: white; display: flex; flex-direction: column; align-items: center; padding: 20px; }
-        #webcam-container { width: 220px; height: 220px; border: 3px solid #00ff88; border-radius: 20px; overflow: hidden; margin-bottom: 20px; display: none; background: #111; }
         
         .painel-teste { background: #1a1a1a; padding: 15px; border-radius: 15px; width: 100%; max-width: 450px; margin-bottom: 20px; border: 1px dashed #444; }
         .grid-botoes { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 10px; }
         
         button { padding: 12px; border-radius: 8px; border: none; cursor: pointer; font-weight: bold; font-size: 0.8rem; transition: 0.2s; }
-        .btn-start { background: #00ff88; color: #000; width: 100%; margin-bottom: 20px; font-size: 1.1rem; }
+        .btn-start { background: #00ff88; color: #000; width: 100%; margin-bottom: 10px; font-size: 1.1rem; }
+        .btn-upload { background: #0088ff; color: #fff; width: 100%; margin-bottom: 20px; font-size: 1.1rem; text-align: center; display: inline-block; box-sizing: border-box; }
+        
         .btn-local { background: #333; color: #fff; border: 1px solid #444; }
         .btn-local.origem-ativa { background: #ffaa00; color: #000; border-color: #fff; }
         .btn-local.destino-ativo { background: #00ff88; color: #000; border-color: #fff; }
@@ -24,25 +25,36 @@
         
         .alerta-andar { display: none; margin-top: 10px; padding: 10px; background: rgba(255, 170, 0, 0.2); border: 2px solid #ffaa00; border-radius: 8px; color: #ffaa00; font-weight: bold; text-transform: uppercase; font-size: 0.9rem; animation: piscar 1.5s infinite; }
         @keyframes piscar { 50% { opacity: 0.6; } }
+
+        /* Estilo para a imagem upada */
+        #preview-imagem { width: 220px; height: 220px; object-fit: cover; border: 3px solid #0088ff; border-radius: 20px; display: none; margin-bottom: 20px; background: #111; }
+        input[type="file"] { display: none; }
     </style>
 </head>
 <body>
 
-    <h1>Assistente de Navegação 3D</h1>
+    <h1>Assistente de Navegação (Upload)</h1>
     
-    <button class="btn-start" id="btn-init" onclick="init()">ATIVAR CÂMERA E VOZ</button>
+    <button class="btn-start" id="btn-init" onclick="init()">1. CARREGAR SISTEMA IA</button>
+    
+    <label for="image-upload" class="btn-upload" id="label-upload" style="display: none; cursor: pointer;">
+        2. ENVIAR FOTO DO LOCAL
+    </label>
+    <input type="file" id="image-upload" accept="image/*" onchange="processarImagem(event)">
 
-    <div id="webcam-container"></div>
+    <img id="preview-imagem" alt="Pré-visualização da câmera">
 
     <div id="status-box">
         <div id="instrucao">Selecione um destino abaixo</div>
         <div id="direcao-texto">---</div>
         <div id="alerta-andar" class="alerta-andar">⚠️ Mudança de Andar</div>
-        <div id="local-atual" style="font-size: 0.85rem; color: #888; margin-top: 10px;">Modo Simulação Ativo</div>
+        <div id="local-atual" style="font-size: 0.85rem; color: #888; margin-top: 10px;">Aguardando Foto...</div>
+        
+        <div id="debug-ia" style="font-size: 0.75rem; color: #ffaa00; margin-top: 10px; word-wrap: break-word;">🧠 IA Pensando: ---</div>
     </div>
 
     <div class="painel-teste" style="margin-top: 20px;">
-        <h4>1. Onde você está? (Origem)</h4>
+        <h4>1. Onde você está? (Manual)</h4>
         <div class="grid-botoes" id="menu-origem"></div>
         
         <h4 style="margin-top:20px;">2. Para onde deseja ir? (Destino)</h4>
@@ -55,50 +67,64 @@
     <script>
         const MODEL_URL = "https://teachablemachine.withgoogle.com/models/qvqu9nB4J/";
         
-        // Base de dados Integrada (Antigas + Novas do Eixo Z)
+        // Base de dados Integrada (Nomes atualizados sem _ e com o novo nó "Central" ligado à rampa0)
         const locais = {
-            // NÓS ANTIGOS (Térreo - z: 0)
             "Portaria": { x: 439, y: 18, z: 0, vizinhos: ["Caminho entrada"], silencioso: false },
-            "Caminho entrada": { x: 434, y: 107, z: 0, vizinhos: ["Portaria", "ConexaoA", "Curva Rampa Maior"], silencioso: false },
-            "Refeitorio fora": { x: 373, y: 191, z: 0, vizinhos: ["ConexaoA", "Refeitorio"], silencioso: false },
+            "Caminho entrada": { x: 434, y: 107, z: 0, vizinhos: ["Portaria", "Curva Rampa Maior"], silencioso: false },
+            "Refeitorio fora": { x: 373, y: 191, z: 0, vizinhos: ["Refeitorio"], silencioso: false },
             "Refeitorio": { x: 328, y: 258, z: 0, vizinhos: ["Refeitorio fora", "Saida do refeitório"], silencioso: false },
-            "Rampa maior": { x: 443, y: 369, z: 0, vizinhos: ["Curva Rampa Maior", "Curva rampa menor"], silencioso: false }, 
+            "Rampa maior": { x: 443, y: 369, z: 0, vizinhos: ["Curva Rampa Maior", "Curva rampa menor", "centro principal"], silencioso: false }, 
             "Rampa menor": { x: 413, y: 427, z: 0, vizinhos: ["Curva rampa menor", "Caminho para o patio"], silencioso: false },
             "Caminho para o patio": { x: 523, y: 427, z: 0, vizinhos: ["Rampa menor", "patio"], silencioso: false },
-            "patio": { x: 534, y: 512, z: 0, vizinhos: ["Caminho para o patio", "patio_central"], silencioso: false }, // Link opcional com a nova estrutura
-
-            "ConexaoA": { x: 222, y: 256, z: 0, vizinhos: ["Caminho entrada", "Refeitorio fora"], silencioso: true },
+            "patio": { x: 534, y: 512, z: 0, vizinhos: ["Caminho para o patio", "patio central"], silencioso: false }, 
+            
             "Curva Rampa Maior": { x: 219, y: 425, z: 0, vizinhos: ["Caminho entrada", "Rampa maior", "Saida do refeitório"], silencioso: true },
             "Curva rampa menor": { x: 220, y: 488, z: 0, vizinhos: ["Curva Rampa Maior", "Rampa menor"], silencioso: true },
             "Saida do refeitório": { x: 107, y: 418, z: 0, vizinhos: ["Refeitorio", "Curva Rampa Maior"], silencioso: true },
 
-            // NOVOS NÓS - ANDAR TÉRREO (Z = 0)
             "biblioteca": { x: 200, y: 600, z: 0, vizinhos: ["corredor biblioteca"], silencioso: false },
-            "corredor biblioteca": { x: 300, y: 600, z: 0, vizinhos: ["caminho_centro", "biblioteca"], silencioso: false },
-            "caminho_centro": { x: 400, y: 600, z: 0, vizinhos: ["corredor biblioteca", "patio_central", "caminho_cantina", "escada", "rampa0"], silencioso: false },
-            "caminho_cantina": { x: 400, y: 700, z: 0, vizinhos: ["caminho_centro", "patio_central", "cantina"], silencioso: false },
-            "cantina": { x: 400, y: 800, z: 0, vizinhos: ["caminho_cantina"], silencioso: false },
-            "escada": { x: 450, y: 650, z: 0, vizinhos: ["patio_central", "caminho_centro"], silencioso: false },
-            "patio_central": { x: 500, y: 600, z: 0, vizinhos: ["escada", "caminho_centro", "rampa0", "caminho_cantina", "patio"], silencioso: false },
+            "corredor biblioteca": { x: 300, y: 600, z: 0, vizinhos: ["caminho centro", "biblioteca"], silencioso: false },
             
-            // CONEXÕES DE ANDAR (Z = 0, 1 e 2)
-            "rampa0": { x: 600, y: 600, z: 0, vizinhos: ["patio_central", "caminho_centro", "rampa2"], silencioso: false },
+            "caminho centro": { x: 400, y: 600, z: 0, vizinhos: ["corredor biblioteca", "Central", "caminho cantina", "escada", "rampa0"], silencioso: false },
+            
+            // "Central" agora está ligada também à "rampa0"
+            "Central": { x: 450, y: 600, z: 0, vizinhos: ["caminho centro", "patio central", "rampa0"], silencioso: false },
+            
+            "caminho cantina": { x: 400, y: 700, z: 0, vizinhos: ["caminho centro", "patio central", "cantina"], silencioso: false },
+            "cantina": { x: 400, y: 800, z: 0, vizinhos: ["caminho cantina"], silencioso: false },
+            "escada": { x: 450, y: 650, z: 0, vizinhos: ["patio central", "caminho centro", "Central"], silencioso: false },
+            
+            "patio central": { x: 500, y: 600, z: 0, vizinhos: ["escada", "Central", "rampa0", "caminho cantina", "patio"], silencioso: false },
+            
+            // "rampa0" agora reconhece a "Central" como vizinha
+            "rampa0": { x: 600, y: 600, z: 0, vizinhos: ["patio central", "caminho centro", "Central", "rampa2"], silencioso: false },
+            
             "rampa2": { x: 600, y: 600, z: 1, vizinhos: ["rampa0", "corredor central", "rampa3"], silencioso: false },
             "rampa3": { x: 650, y: 600, z: 1, vizinhos: ["rampa2", "rampa4", "corredor central"], silencioso: false },
             "rampa4": { x: 700, y: 600, z: 2, vizinhos: ["rampa3"], silencioso: false },
 
-            // NOVOS NÓS - ANDAR SUPERIOR (Z = 1)
             "corredor central": { x: 600, y: 500, z: 1, vizinhos: ["centro principal", "rampa2", "rampa3"], silencioso: false },
-            "centro principal": { x: 700, y: 500, z: 1, vizinhos: ["corredor central", "corredor esquerda"], silencioso: false },
+            "centro principal": { x: 700, y: 500, z: 1, vizinhos: ["corredor central", "corredor esquerda", "Rampa maior"], silencioso: false },
             "corredor esquerda": { x: 800, y: 500, z: 1, vizinhos: ["centro principal"], silencioso: false }
         };
 
-        let model, webcam, destinoAtual = null, localIdentificado = null, ultimaFala = "";
+        let model, destinoAtual = null, localIdentificado = null, ultimaFala = "";
+        
+        // VOZ
         const synth = window.speechSynthesis;
+        let vozPreferida = null;
 
-        // CÁLCULO DE DISTÂNCIA CORRIGIDO (Multiplicador de Z adicionado)
-        // Multiplicar o eixo Z por 150 garante que o algoritmo entenda que
-        // mudar de andar "custa" mais distância do que andar reto.
+        function carregarVozes() {
+            let vozes = synth.getVoices();
+            let vozesPtBr = vozes.filter(v => v.lang === 'pt-BR' || v.lang === 'pt_BR');
+            if (vozesPtBr.length > 0) {
+                vozPreferida = vozesPtBr.find(v => v.name.includes('Google') || v.name.includes('Francisca') || v.name.includes('Antonio') || v.name.includes('Luciana'));
+                if (!vozPreferida) vozPreferida = vozesPtBr[0];
+            }
+        }
+        if (speechSynthesis.onvoiceschanged !== undefined) speechSynthesis.onvoiceschanged = carregarVozes;
+
+        // ALGORITMO A* E DISTÂNCIA
         function calcularDistancia(a, b) {
             return Math.sqrt(
                 Math.pow(locais[a].x - locais[b].x, 2) + 
@@ -122,10 +148,7 @@
                 openSet = openSet.filter(item => item !== atual);
                 
                 locais[atual].vizinhos.forEach(v => {
-                    if (!locais[v]) {
-                        console.warn("Vizinho não encontrado: ", v, " no nó: ", atual);
-                        return;
-                    }
+                    if (!locais[v]) return;
                     let tentativeGScore = gScore[atual] + calcularDistancia(atual, v);
                     if (tentativeGScore < gScore[v]) {
                         veioDe[v] = atual;
@@ -138,12 +161,15 @@
             return null;
         }
 
+        // FALA E NAVEGAÇÃO
         function falar(texto) {
             if (texto === ultimaFala) return; 
             ultimaFala = texto;
-            synth.cancel();
+            synth.cancel(); 
             const utter = new SpeechSynthesisUtterance(texto);
             utter.lang = 'pt-BR';
+            if (vozPreferida) utter.voice = vozPreferida;
+            utter.rate = 1.05;  
             synth.speak(utter);
         }
 
@@ -170,22 +196,20 @@
                 const zAtual = locais[posicaoAtual].z;
                 const zProximo = locais[proximo].z;
 
-                // Dinâmica de andares corrigida para ler múltiplos níveis!
                 if (zProximo > zAtual) {
                     alertaUI.style.display = "block";
-                    alertaUI.innerText = `⚠️ Suba para o andar ${zProximo}`;
-                    instrucao = "Suba a rampa ou escada em direção a " + proximo;
+                    alertaUI.innerText = `⚠️ Suba para o andar ${zProximo} (Corrimão à Esquerda)`;
+                    instrucao = `Suba em direção a ${proximo}, seguindo sempre o corrimão à esquerda.`;
                 } else if (zProximo < zAtual) {
                     alertaUI.style.display = "block";
-                    alertaUI.innerText = `⚠️ Desça para o andar ${zProximo}`;
-                    instrucao = "Desça em direção a " + proximo;
+                    alertaUI.innerText = `⚠️ Desça para o andar ${zProximo} (Corrimão à Direita)`;
+                    instrucao = `Desça em direção a ${proximo}, seguindo sempre o corrimão à direita.`;
                 }
 
                 document.getElementById("direcao-texto").innerText = proximo;
                 falar(instrucao);
             } else {
                 document.getElementById("direcao-texto").innerText = "CAMINHO INACESSÍVEL";
-                falar("Não encontrei um caminho válido.");
             }
         }
 
@@ -193,7 +217,7 @@
             localIdentificado = local;
             document.querySelectorAll('#menu-origem .btn-local').forEach(b => b.classList.remove('origem-ativa'));
             event.target.classList.add('origem-ativa');
-            document.getElementById("local-atual").innerText = "📍 Localização: " + local;
+            document.getElementById("local-atual").innerText = "📍 Localização (Manual): " + local;
             atualizarNavegacao(local);
         }
 
@@ -205,45 +229,63 @@
             if(localIdentificado) atualizarNavegacao(localIdentificado);
         }
 
-        async function predict() {
-            if(!model || !webcam.canvas) return;
-            const prediction = await model.predict(webcam.canvas);
-            let melhor = "", max = 0;
-            for(let i=0; i<model.getTotalClasses(); i++) {
-                if(prediction[i].probability > 0.85 && prediction[i].probability > max) {
-                    max = prediction[i].probability; melhor = prediction[i].className;
-                }
-            }
-
-            if(melhor !== "" && melhor !== localIdentificado) {
-                if(locais[melhor]) {
-                    localIdentificado = melhor;
-                    document.getElementById("local-atual").innerText = "📷 Câmera detectou: " + melhor;
-                    atualizarNavegacao(melhor);
-                }
-            }
-        }
-
+        // --- NOVA LÓGICA DE UPLOAD E PREVISÃO ---
         async function init() {
-            document.getElementById("btn-init").innerText = "CARREGANDO SISTEMA...";
+            document.getElementById("btn-init").innerText = "CARREGANDO MODELO...";
             model = await tmImage.load(MODEL_URL + "model.json", MODEL_URL + "metadata.json");
             
-            webcam = new tmImage.Webcam(220, 220, true);
-            await webcam.setup({ facingMode: "environment" });
-            await webcam.play();
-            
-            document.getElementById("webcam-container").style.display = "block";
-            document.getElementById("webcam-container").appendChild(webcam.canvas);
             document.getElementById("btn-init").style.display = "none";
+            document.getElementById("label-upload").style.display = "block"; 
             
-            window.requestAnimationFrame(loop);
-            falar("Sistema pronto. Por favor, escolha um destino.");
+            falar("Sistema pronto. Por favor, escolha um destino e envie uma foto.");
         }
 
-        async function loop() {
-            webcam.update();
-            await predict();
-            window.requestAnimationFrame(loop);
+        function processarImagem(event) {
+            const file = event.target.files[0];
+            if (!file) return;
+
+            const imgElement = document.getElementById("preview-imagem");
+            imgElement.src = URL.createObjectURL(file);
+            imgElement.style.display = "block";
+            
+            document.getElementById("debug-ia").innerText = "🧠 Analisando imagem...";
+
+            imgElement.onload = async () => {
+                await predictUpload(imgElement);
+            };
+        }
+
+        async function predictUpload(imageElement) {
+            if(!model) return;
+            const prediction = await model.predict(imageElement);
+            
+            let melhor = "", max = 0;
+            let textoDebug = ""; 
+
+            for(let i=0; i<model.getTotalClasses(); i++) {
+                if (prediction[i].probability > 0.05) {
+                    textoDebug += `${prediction[i].className}: ${(prediction[i].probability * 100).toFixed(0)}% | `;
+                }
+
+                if(prediction[i].probability > 0.70 && prediction[i].probability > max) {
+                    max = prediction[i].probability; 
+                    melhor = prediction[i].className;
+                }
+            }
+
+            document.getElementById("debug-ia").innerText = "🧠 IA vendo: " + (textoDebug || "Nada claro");
+
+            if(melhor !== "") {
+                if(locais[melhor]) {
+                    localIdentificado = melhor;
+                    document.getElementById("local-atual").innerText = "🖼️ Foto detectou: " + melhor;
+                    atualizarNavegacao(melhor);
+                } else {
+                    document.getElementById("local-atual").innerHTML = `<span style="color: red;">❌ Erro: IA detectou '${melhor}', mas não existe em 'locais'.</span>`;
+                }
+            } else {
+                document.getElementById("local-atual").innerHTML = `<span style="color: #ffaa00;">⚠️ Nenhuma classe atingiu 70% de certeza.</span>`;
+            }
         }
 
         window.onload = () => {
@@ -251,7 +293,7 @@
             const mDestino = document.getElementById("menu-destino");
             
             Object.keys(locais).forEach(l => {
-                if(locais[l].silencioso) return; // Nós de curva não aparecem nos botões
+                if(locais[l].silencioso) return; 
                 
                 const btnO = document.createElement("button");
                 btnO.className = "btn-local"; btnO.innerText = l + (locais[l].z > 0 ? ` (Andar ${locais[l].z})` : "");
