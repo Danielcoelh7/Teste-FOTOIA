@@ -68,12 +68,15 @@
         const MODEL_URL = "https://teachablemachine.withgoogle.com/models/qvqu9nB4J/";
         
         // Base de dados Integrada (Nomes atualizados sem _ e com o novo nó "Central" ligado à rampa0)
-        const locais = {
+       const locais = {
             "Portaria": { x: 439, y: 18, z: 0, vizinhos: ["Caminho entrada"], silencioso: false },
             "Caminho entrada": { x: 434, y: 107, z: 0, vizinhos: ["Portaria", "Curva Rampa Maior"], silencioso: false },
             "Refeitorio fora": { x: 373, y: 191, z: 0, vizinhos: ["Refeitorio"], silencioso: false },
             "Refeitorio": { x: 328, y: 258, z: 0, vizinhos: ["Refeitorio fora", "Saida do refeitório"], silencioso: false },
-            "Rampa maior": { x: 443, y: 369, z: 0, vizinhos: ["Curva Rampa Maior", "Curva rampa menor", "centro principal"], silencioso: false }, 
+            
+            // ATUALIZADO: "Centro" adicionado como vizinho
+            "Rampa maior": { x: 443, y: 369, z: 0, vizinhos: ["Curva Rampa Maior", "Curva rampa menor", "centro principal", "Centro"], silencioso: false }, 
+            
             "Rampa menor": { x: 413, y: 427, z: 0, vizinhos: ["Curva rampa menor", "Caminho para o patio"], silencioso: false },
             "Caminho para o patio": { x: 523, y: 427, z: 0, vizinhos: ["Rampa menor", "patio"], silencioso: false },
             "patio": { x: 534, y: 512, z: 0, vizinhos: ["Caminho para o patio", "patio central"], silencioso: false }, 
@@ -87,8 +90,8 @@
             
             "caminho centro": { x: 400, y: 600, z: 0, vizinhos: ["corredor biblioteca", "Central", "caminho cantina", "escada", "rampa0"], silencioso: false },
             
-            // "Central" agora está ligada também à "rampa0"
-            "Central": { x: 450, y: 600, z: 0, vizinhos: ["caminho centro", "patio central", "rampa0"], silencioso: false },
+            // ATUALIZADO: "Centro" adicionado como vizinho
+            "Central": { x: 450, y: 600, z: 0, vizinhos: ["caminho centro", "patio central", "rampa0", "Centro"], silencioso: false },
             
             "caminho cantina": { x: 400, y: 700, z: 0, vizinhos: ["caminho centro", "patio central", "cantina"], silencioso: false },
             "cantina": { x: 400, y: 800, z: 0, vizinhos: ["caminho cantina"], silencioso: false },
@@ -96,16 +99,25 @@
             
             "patio central": { x: 500, y: 600, z: 0, vizinhos: ["escada", "Central", "rampa0", "caminho cantina", "patio"], silencioso: false },
             
-            // "rampa0" agora reconhece a "Central" como vizinha
             "rampa0": { x: 600, y: 600, z: 0, vizinhos: ["patio central", "caminho centro", "Central", "rampa2"], silencioso: false },
             
-            "rampa2": { x: 600, y: 600, z: 1, vizinhos: ["rampa0", "corredor central", "rampa3"], silencioso: false },
-            "rampa3": { x: 650, y: 600, z: 1, vizinhos: ["rampa2", "rampa4", "corredor central"], silencioso: false },
+            // ATUALIZADOS: "Centro" adicionado como vizinho nas rampas
+            "rampa2": { x: 600, y: 600, z: 1, vizinhos: ["rampa0", "corredor central", "rampa3", "Centro"], silencioso: false },
+            "rampa3": { x: 650, y: 600, z: 1, vizinhos: ["rampa2", "rampa4", "corredor central", "Centro"], silencioso: false },
+            
             "rampa4": { x: 700, y: 600, z: 2, vizinhos: ["rampa3"], silencioso: false },
 
             "corredor central": { x: 600, y: 500, z: 1, vizinhos: ["centro principal", "rampa2", "rampa3"], silencioso: false },
             "centro principal": { x: 700, y: 500, z: 1, vizinhos: ["corredor central", "corredor esquerda", "Rampa maior"], silencioso: false },
-            "corredor esquerda": { x: 800, y: 500, z: 1, vizinhos: ["centro principal"], silencioso: false }
+            
+            // ATUALIZADO: "Centro" adicionado como vizinho
+            "corredor esquerda": { x: 800, y: 500, z: 1, vizinhos: ["centro principal", "Centro"], silencioso: false },
+            
+            // NOVO: Adicionado "corredor direita" para não quebrar a lógica, com coordenadas aproximadas
+            "corredor direita": { x: 500, y: 500, z: 1, vizinhos: ["Centro"], silencioso: false },
+
+            // NOVO: Ponto "Centro" adicionado com todas as conexões solicitadas e coordenadas sugeridas
+            "Centro": { x: 650, y: 550, z: 1, vizinhos: ["Rampa maior", "rampa2", "rampa3", "corredor esquerda", "Central", "corredor direita"], silencioso: false }
         };
 
         let model, destinoAtual = null, localIdentificado = null, ultimaFala = "";
