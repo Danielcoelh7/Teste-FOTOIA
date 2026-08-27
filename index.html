@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Navegador Indoor Federal - Teste de Fotos (3D)</title>
+    <title>Navegador Indoor Federal - Teste de Fotos (Filtro IA)</title>
     <style>
         body { font-family: sans-serif; background: #000; color: white; display: flex; flex-direction: column; align-items: center; padding: 20px; }
         
@@ -18,7 +18,7 @@
         .btn-local.origem-ativa { background: #ffaa00; color: #000; border-color: #fff; }
         .btn-local.destino-ativo { background: #00ff88; color: #000; border-color: #fff; }
 
-        #status-box { padding: 20px; background: #111; border-radius: 15px; text-align: center; width: 100%; max-width: 400px; border: 2px solid #00ff88; box-shadow: 0 0 15px rgba(0,255,136,0.2); }
+        #status-box { padding: 20px; background: #111; border-radius: 15px; text-align: center; width: 100%; max-width: 450px; border: 2px solid #00ff88; box-shadow: 0 0 15px rgba(0,255,136,0.2); }
         #direcao-texto { font-size: 1.5rem; color: #00ff88; font-weight: bold; margin: 10px 0; min-height: 1.5em; text-transform: uppercase; }
         #instrucao { color: #ccc; font-size: 0.9rem; }
         h4 { margin: 5px 0; color: #00ff88; text-transform: uppercase; font-size: 0.75rem; letter-spacing: 1px; }
@@ -26,9 +26,10 @@
         .alerta-andar { display: none; margin-top: 10px; padding: 10px; background: rgba(255, 170, 0, 0.2); border: 2px solid #ffaa00; border-radius: 8px; color: #ffaa00; font-weight: bold; text-transform: uppercase; font-size: 0.9rem; animation: piscar 1.5s infinite; }
         @keyframes piscar { 50% { opacity: 0.6; } }
 
-        /* Estilo para a imagem upada */
         #preview-imagem { width: 220px; height: 220px; object-fit: cover; border: 3px solid #0088ff; border-radius: 20px; display: none; margin-bottom: 20px; background: #111; }
         input[type="file"] { display: none; }
+        
+        #debug-ia { font-size: 0.75rem; background: #222; padding: 10px; border-radius: 8px; margin-top: 15px; text-align: left; word-wrap: break-word; line-height: 1.4; border: 1px dashed #555;}
     </style>
 </head>
 <body>
@@ -42,15 +43,15 @@
     </label>
     <input type="file" id="image-upload" accept="image/*" onchange="processarImagem(event)">
 
-    <img id="preview-imagem" alt="Pré-visualização da câmera">
+    <img id="preview-imagem" alt="Pré-visualização da imagem">
 
     <div id="status-box">
         <div id="instrucao">Selecione um destino abaixo</div>
         <div id="direcao-texto">---</div>
         <div id="alerta-andar" class="alerta-andar">⚠️ Mudança de Andar</div>
-        <div id="local-atual" style="font-size: 0.85rem; color: #888; margin-top: 10px;">Aguardando Foto...</div>
+        <div id="local-atual" style="font-size: 0.9rem; color: #888; margin-top: 10px; font-weight: bold;">Aguardando Foto...</div>
         
-        <div id="debug-ia" style="font-size: 0.75rem; color: #ffaa00; margin-top: 10px; word-wrap: break-word;">🧠 IA Pensando: ---</div>
+        <div id="debug-ia">🧠 <b>Painel Raio-X:</b> Aguardando análise...</div>
     </div>
 
     <div class="painel-teste" style="margin-top: 20px;">
@@ -66,64 +67,45 @@
 
     <script>
         const MODEL_URL = "https://teachablemachine.withgoogle.com/models/qvqu9nB4J/";
-
         
-        // Base de dados Integrada (Nomes atualizados sem _ e com o novo nó "Central" ligado à rampa0)
-       const locais = {
+        // Base de dados Integrada (Nomes atualizados e Rotas Diretas)
+        const locais = {
             "Portaria": { x: 439, y: 18, z: 0, vizinhos: ["Caminho entrada"], silencioso: false },
-            "Caminho entrada": { x: 434, y: 107, z: 0, vizinhos: ["Portaria", "Curva Rampa Maior"], silencioso: false },
+            "Caminho entrada": { x: 434, y: 107, z: 0, vizinhos: ["Portaria", "Rampa maior"], silencioso: false },
             "Refeitorio fora": { x: 373, y: 191, z: 0, vizinhos: ["Refeitorio"], silencioso: false },
             "Refeitorio": { x: 328, y: 258, z: 0, vizinhos: ["Refeitorio fora", "Saida do refeitório"], silencioso: false },
-            
-            // ATUALIZADO: "Centro" adicionado como vizinho
-            "Rampa maior": { x: 443, y: 369, z: 0, vizinhos: ["Curva Rampa Maior", "Curva rampa menor", "centro principal", "Centro"], silencioso: false }, 
-            
-            "Rampa menor": { x: 413, y: 427, z: 0, vizinhos: ["Curva rampa menor", "Caminho para o patio"], silencioso: false },
-            "Caminho para o patio": { x: 523, y: 427, z: 0, vizinhos: ["Rampa menor", "patio"], silencioso: false },
-            "patio": { x: 534, y: 512, z: 0, vizinhos: ["Caminho para o patio", "patio central"], silencioso: false }, 
-            
-            "Curva Rampa Maior": { x: 219, y: 425, z: 0, vizinhos: ["Caminho entrada", "Rampa maior", "Saida do refeitório"], silencioso: true },
-            "Curva rampa menor": { x: 220, y: 488, z: 0, vizinhos: ["Curva Rampa Maior", "Rampa menor"], silencioso: true },
-            "Saida do refeitório": { x: 107, y: 418, z: 0, vizinhos: ["Refeitorio", "Curva Rampa Maior"], silencioso: true },
+            "Saida do refeitório": { x: 107, y: 418, z: 0, vizinhos: ["Refeitorio", "Rampa maior"], silencioso: true },
+
+            // Rampas diretas (Conectadas ao 2º Andar)
+            "Rampa maior": { x: 443, y: 369, z: 0, vizinhos: ["Caminho entrada", "Saida do refeitório", "Rampa menor", "Centro"], silencioso: false }, 
+            "Rampa menor": { x: 413, y: 427, z: 0, vizinhos: ["Rampa maior", "patio"], silencioso: false },
+            "patio": { x: 534, y: 512, z: 0, vizinhos: ["Rampa menor", "patio central"], silencioso: false }, 
 
             "biblioteca": { x: 200, y: 600, z: 0, vizinhos: ["corredor biblioteca"], silencioso: false },
             "corredor biblioteca": { x: 300, y: 600, z: 0, vizinhos: ["caminho centro", "biblioteca"], silencioso: false },
             
-            "caminho centro": { x: 400, y: 600, z: 0, vizinhos: ["corredor biblioteca", "Central", "caminho cantina", "escada", "rampa0"], silencioso: false },
+            "caminho centro": { x: 400, y: 600, z: 0, vizinhos: ["corredor biblioteca", "Central", "caminho cantina", "Escada0", "rampa0"], silencioso: false },
+            "Central": { x: 450, y: 600, z: 0, vizinhos: ["caminho centro", "patio central", "rampa0"], silencioso: false },
             
-            // ATUALIZADO: "Centro" adicionado como vizinho
-            "Central": { x: 450, y: 600, z: 0, vizinhos: ["caminho centro", "patio central", "rampa0", "Centro"], silencioso: false },
-            
-            "caminho cantina": { x: 400, y: 700, z: 0, vizinhos: ["caminho centro", "patio central", "cantina"], silencioso: false },
+            "caminho cantina": { x: 400, y: 700, z: 0, vizinhos: ["Central", "cantina"], silencioso: false },
             "cantina": { x: 400, y: 800, z: 0, vizinhos: ["caminho cantina"], silencioso: false },
-            "escada": { x: 450, y: 650, z: 0, vizinhos: ["patio central", "caminho centro", "Central"], silencioso: false },
+            "Escada0": { x: 450, y: 650, z: 0, vizinhos: ["patio central", "caminho centro", "Central"], silencioso: false },
             
-            "patio central": { x: 500, y: 600, z: 0, vizinhos: ["escada", "Central", "rampa0", "caminho cantina", "patio"], silencioso: false },
+            "patio central": { x: 500, y: 600, z: 0, vizinhos: ["Escada0", "Central", "rampa0", "patio"], silencioso: false },
             
             "rampa0": { x: 600, y: 600, z: 0, vizinhos: ["patio central", "caminho centro", "Central", "rampa2"], silencioso: false },
-            
-            // ATUALIZADOS: "Centro" adicionado como vizinho nas rampas
-            "rampa2": { x: 600, y: 600, z: 1, vizinhos: ["rampa0", "corredor central", "rampa3", "Centro"], silencioso: false },
-            "rampa3": { x: 650, y: 600, z: 1, vizinhos: ["rampa2", "rampa4", "corredor central", "Centro"], silencioso: false },
-            
+            "rampa2": { x: 600, y: 600, z: 1, vizinhos: ["rampa0", "Centro", "rampa3"], silencioso: false },
+            "rampa3": { x: 650, y: 600, z: 1, vizinhos: ["rampa2", "rampa4", "Centro"], silencioso: false },
             "rampa4": { x: 700, y: 600, z: 2, vizinhos: ["rampa3"], silencioso: false },
 
-            "corredor central": { x: 600, y: 500, z: 1, vizinhos: ["centro principal", "rampa2", "rampa3"], silencioso: false },
-            "centro principal": { x: 700, y: 500, z: 1, vizinhos: ["corredor central", "corredor esquerda", "Rampa maior"], silencioso: false },
-            
-            // ATUALIZADO: "Centro" adicionado como vizinho
-            "corredor esquerda": { x: 800, y: 500, z: 1, vizinhos: ["centro principal", "Centro"], silencioso: false },
-            
-            // NOVO: Adicionado "corredor direita" para não quebrar a lógica, com coordenadas aproximadas
-            "corredor direita": { x: 500, y: 500, z: 1, vizinhos: ["Centro"], silencioso: false },
-
-            // NOVO: Ponto "Centro" adicionado com todas as conexões solicitadas e coordenadas sugeridas
-            "Centro": { x: 650, y: 550, z: 1, vizinhos: ["Rampa maior", "rampa2", "rampa3", "corredor esquerda", "Central", "corredor direita"], silencioso: false }
+            "corredor central": { x: 600, y: 500, z: 1, vizinhos: ["Centro", "rampa2", "rampa3"], silencioso: false },
+            "Centro": { x: 700, y: 500, z: 1, vizinhos: ["corredor central", "corredor esquerda", "Rampa maior"], silencioso: false },
+            "corredor esquerda": { x: 800, y: 500, z: 1, vizinhos: ["Centro"], silencioso: false }
         };
 
         let model, destinoAtual = null, localIdentificado = null, ultimaFala = "";
         
-        // VOZ
+        // VOZ PREMIUM
         const synth = window.speechSynthesis;
         let vozPreferida = null;
 
@@ -137,7 +119,7 @@
         }
         if (speechSynthesis.onvoiceschanged !== undefined) speechSynthesis.onvoiceschanged = carregarVozes;
 
-        // ALGORITMO A* E DISTÂNCIA
+        // ALGORITMO A* COM DISTÂNCIA 3D
         function calcularDistancia(a, b) {
             return Math.sqrt(
                 Math.pow(locais[a].x - locais[b].x, 2) + 
@@ -208,8 +190,20 @@
                 
                 const zAtual = locais[posicaoAtual].z;
                 const zProximo = locais[proximo].z;
+                const zDestino = locais[destinoAtual].z;
 
-                if (zProximo > zAtual) {
+                // REGRA 1: Dica de atalho ao ser direcionado para a Rampa Maior
+                if (proximo === "Rampa maior" && zDestino > 0) {
+                    instrucao = "Para chegar no segundo andar mais rápido, vá para a rampa maior e suba. Se não, continue reto até a rampa menor.";
+                }
+                // REGRA 2: Ao chegar na Rampa Menor e precisar subir
+                else if (posicaoAtual === "Rampa menor" && zProximo > zAtual) {
+                    alertaUI.style.display = "block";
+                    alertaUI.innerText = `⚠️ Suba a Rampa Menor para o andar ${zProximo}`;
+                    instrucao = `Você chegou na rampa menor. Agora suba, seguindo sempre o corrimão à esquerda.`;
+                } 
+                // Lógica Padrão de Corrimão para os outros andares
+                else if (zProximo > zAtual) {
                     alertaUI.style.display = "block";
                     alertaUI.innerText = `⚠️ Suba para o andar ${zProximo} (Corrimão à Esquerda)`;
                     instrucao = `Suba em direção a ${proximo}, seguindo sempre o corrimão à esquerda.`;
@@ -242,7 +236,32 @@
             if(localIdentificado) atualizarNavegacao(localIdentificado);
         }
 
-        // --- NOVA LÓGICA DE UPLOAD E PREVISÃO ---
+        // --- SISTEMA DE UPLOAD E FILTRO TOPOLÓGICO ---
+
+        // Função que mapeia os limites físicos (Raio de Visão)
+        function obterClassesPermitidas(inicio) {
+            if (!inicio || !locais[inicio]) return null; 
+
+            let permitidos = [inicio];
+            let visitados = [inicio];
+            let fila = [inicio];
+
+            while(fila.length > 0) {
+                let atual = fila.shift();
+                locais[atual].vizinhos.forEach(v => {
+                    if (!visitados.includes(v)) {
+                        visitados.push(v);
+                        if (locais[v].silencioso) {
+                            fila.push(v); // Atravessa a curva invisível
+                        } else {
+                            permitidos.push(v); // Adiciona lugar real acessível
+                        }
+                    }
+                });
+            }
+            return permitidos;
+        }
+
         async function init() {
             document.getElementById("btn-init").innerText = "CARREGANDO MODELO...";
             model = await tmImage.load(MODEL_URL + "model.json", MODEL_URL + "metadata.json");
@@ -273,31 +292,60 @@
             const prediction = await model.predict(imageElement);
             
             let melhor = "", max = 0;
-            let textoDebug = ""; 
+            let textoIA_Bruta = ""; 
+            let textoFiltro = "";
+            
+            let classesPermitidas = obterClassesPermitidas(localIdentificado);
+            let andarAtual = localIdentificado ? locais[localIdentificado].z : null;
 
             for(let i=0; i<model.getTotalClasses(); i++) {
-                if (prediction[i].probability > 0.05) {
-                    textoDebug += `${prediction[i].className}: ${(prediction[i].probability * 100).toFixed(0)}% | `;
+                let nomeClasse = prediction[i].className;
+                let prob = prediction[i].probability;
+                
+                // 1. Visão Bruta
+                if (prob > 0.05) {
+                    textoIA_Bruta += `${nomeClasse}: ${(prob * 100).toFixed(0)}% | `;
+                }
+                
+                // 2. Filtro de Realidade (Topologia e Andar)
+                let bloqueado = false;
+                if (classesPermitidas !== null) {
+                    if (!classesPermitidas.includes(nomeClasse)) bloqueado = true;
+                } else if (andarAtual !== null && locais[nomeClasse]) {
+                    let andarDaClasse = locais[nomeClasse].z;
+                    let ehConexao = nomeClasse.toLowerCase().includes("rampa") || nomeClasse.toLowerCase().includes("escada");
+                    if (andarDaClasse !== andarAtual && !ehConexao) bloqueado = true;
                 }
 
-                if(prediction[i].probability > 0.70 && prediction[i].probability > max) {
-                    max = prediction[i].probability; 
-                    melhor = prediction[i].className;
+                if (bloqueado) continue; 
+
+                // 3. Resultado após o filtro
+                if (prob > 0.01) { 
+                    textoFiltro += `${nomeClasse}: ${(prob * 100).toFixed(0)}% | `;
+                }
+
+                // Aceitação a partir de 20% (já que removemos o lixo visual)
+                if(prob > 0.20 && prob > max) {
+                    max = prob; 
+                    melhor = nomeClasse;
                 }
             }
 
-            document.getElementById("debug-ia").innerText = "🧠 IA vendo: " + (textoDebug || "Nada claro");
+            // Exibe o painel Raio-X
+            document.getElementById("debug-ia").innerHTML = 
+                `<span style="color:#aaa;">🧠 <b>Visão Bruta da IA:</b><br>${textoIA_Bruta || "Nada claro"}</span><br><br>
+                 <span style="color:#00ff88;">🛡️ <b>Passou no Filtro Físico:</b><br>${textoFiltro || "Nenhuma classe vizinha detectada"}</span>`;
 
             if(melhor !== "") {
                 if(locais[melhor]) {
                     localIdentificado = melhor;
-                    document.getElementById("local-atual").innerText = "🖼️ Foto detectou: " + melhor;
+                    document.getElementById("local-atual").innerHTML = `<span style="color: #00ff88;">🖼️ Foto detectou: ${melhor}</span>`;
                     atualizarNavegacao(melhor);
                 } else {
-                    document.getElementById("local-atual").innerHTML = `<span style="color: red;">❌ Erro: IA detectou '${melhor}', mas não existe em 'locais'.</span>`;
+                    document.getElementById("local-atual").innerHTML = `<span style="color: red;">❌ Erro: '${melhor}' não existe no mapa.</span>`;
                 }
             } else {
-                document.getElementById("local-atual").innerHTML = `<span style="color: #ffaa00;">⚠️ Nenhuma classe atingiu 70% de certeza.</span>`;
+                document.getElementById("local-atual").innerHTML = `<span style="color: #ffaa00;">⚠️ Nenhuma imagem no raio de visão atingiu a certeza mínima.</span>`;
             }
         }
 
