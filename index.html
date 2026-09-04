@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Navegador Indoor Federal - Teste de Fotos (Filtro IA)</title>
+    <title>Navegador Indoor Federal - IAs Modulares (Final)</title>
     <style>
         body { font-family: sans-serif; background: #000; color: white; display: flex; flex-direction: column; align-items: center; padding: 20px; }
         
@@ -34,9 +34,9 @@
 </head>
 <body>
 
-    <h1>Assistente de Navegação (Upload)</h1>
+    <h1>Assistente de Navegação</h1>
     
-    <button class="btn-start" id="btn-init" onclick="init()">1. CARREGAR SISTEMA IA</button>
+    <button class="btn-start" id="btn-init" onclick="init()">1. CARREGAR IAs MODULARES</button>
     
     <label for="image-upload" class="btn-upload" id="label-upload" style="display: none; cursor: pointer;">
         2. ENVIAR FOTO DO LOCAL
@@ -55,7 +55,7 @@
     </div>
 
     <div class="painel-teste" style="margin-top: 20px;">
-        <h4>1. Onde você está? (Manual)</h4>
+        <h4>1. Onde você está? (Define o modelo da IA)</h4>
         <div class="grid-botoes" id="menu-origem"></div>
         
         <h4 style="margin-top:20px;">2. Para onde deseja ir? (Destino)</h4>
@@ -66,9 +66,15 @@
     <script src="https://cdn.jsdelivr.net/npm/@teachablemachine/image@latest/dist/teachablemachine-image.min.js"></script>
 
     <script>
-        const MODEL_URL = "https://teachablemachine.withgoogle.com/models/qvqu9nB4J/";
-        
-        // Base de dados Integrada (Nomes atualizados e Rotas Diretas)
+        // Mapeamento dos modelos por Andar (Eixo Z)
+        const MODELOS_URLS = {
+            0: "https://teachablemachine.withgoogle.com/models/gPTMKh0iV/",
+            1: "https://teachablemachine.withgoogle.com/models/m8i3tW5uf/",
+            2: "https://teachablemachine.withgoogle.com/models/N6xHCcS5t/"
+        };
+        let modelosCarregados = {};
+
+        // Base de dados Integrada com correção de vias bidirecionais
         const locais = {
             "Portaria": { x: 439, y: 18, z: 0, vizinhos: ["Caminho entrada"], silencioso: false },
             "Caminho entrada": { x: 434, y: 107, z: 0, vizinhos: ["Portaria", "Rampa maior"], silencioso: false },
@@ -76,7 +82,6 @@
             "Refeitorio": { x: 328, y: 258, z: 0, vizinhos: ["Refeitorio fora", "Saida do refeitório"], silencioso: false },
             "Saida do refeitório": { x: 107, y: 418, z: 0, vizinhos: ["Refeitorio", "Rampa maior"], silencioso: true },
 
-            // Rampas diretas (Conectadas ao 2º Andar)
             "Rampa maior": { x: 443, y: 369, z: 0, vizinhos: ["Caminho entrada", "Saida do refeitório", "Rampa menor", "Centro"], silencioso: false }, 
             "Rampa menor": { x: 413, y: 427, z: 0, vizinhos: ["Rampa maior", "patio"], silencioso: false },
             "patio": { x: 534, y: 512, z: 0, vizinhos: ["Rampa menor", "patio central"], silencioso: false }, 
@@ -85,25 +90,26 @@
             "corredor biblioteca": { x: 300, y: 600, z: 0, vizinhos: ["caminho centro", "biblioteca"], silencioso: false },
             
             "caminho centro": { x: 400, y: 600, z: 0, vizinhos: ["corredor biblioteca", "Central", "caminho cantina", "Escada0", "rampa0"], silencioso: false },
-            "Central": { x: 450, y: 600, z: 0, vizinhos: ["caminho centro", "patio central", "rampa0"], silencioso: false },
+            "Central": { x: 450, y: 600, z: 0, vizinhos: ["caminho centro", "patio central", "rampa0", "caminho cantina", "Escada0"], silencioso: false },
             
-            "caminho cantina": { x: 400, y: 700, z: 0, vizinhos: ["Central", "cantina"], silencioso: false },
+            "caminho cantina": { x: 400, y: 700, z: 0, vizinhos: ["Central", "cantina", "caminho centro"], silencioso: false },
             "cantina": { x: 400, y: 800, z: 0, vizinhos: ["caminho cantina"], silencioso: false },
             "Escada0": { x: 450, y: 650, z: 0, vizinhos: ["patio central", "caminho centro", "Central"], silencioso: false },
             
             "patio central": { x: 500, y: 600, z: 0, vizinhos: ["Escada0", "Central", "rampa0", "patio"], silencioso: false },
             
             "rampa0": { x: 600, y: 600, z: 0, vizinhos: ["patio central", "caminho centro", "Central", "rampa2"], silencioso: false },
-            "rampa2": { x: 600, y: 600, z: 1, vizinhos: ["rampa0", "Centro", "rampa3"], silencioso: false },
-            "rampa3": { x: 650, y: 600, z: 1, vizinhos: ["rampa2", "rampa4", "Centro"], silencioso: false },
+            "rampa2": { x: 600, y: 600, z: 1, vizinhos: ["rampa0", "Centro", "rampa3", "corredor central"], silencioso: false },
+            "rampa3": { x: 650, y: 600, z: 1, vizinhos: ["rampa2", "rampa4", "Centro", "corredor central"], silencioso: false },
             "rampa4": { x: 700, y: 600, z: 2, vizinhos: ["rampa3"], silencioso: false },
 
             "corredor central": { x: 600, y: 500, z: 1, vizinhos: ["Centro", "rampa2", "rampa3"], silencioso: false },
-            "Centro": { x: 700, y: 500, z: 1, vizinhos: ["corredor central", "corredor esquerda", "Rampa maior"], silencioso: false },
-            "corredor esquerda": { x: 800, y: 500, z: 1, vizinhos: ["Centro"], silencioso: false }
+            "Centro": { x: 700, y: 500, z: 1, vizinhos: ["corredor central", "corredor esquerda", "corredor direita", "Rampa maior", "rampa2", "rampa3"], silencioso: false },
+            "corredor esquerda": { x: 800, y: 500, z: 1, vizinhos: ["Centro"], silencioso: false },
+            "corredor direita": { x: 900, y: 500, z: 1, vizinhos: ["Centro"], silencioso: false }
         };
 
-        let model, destinoAtual = null, localIdentificado = null, ultimaFala = "";
+        let destinoAtual = null, localIdentificado = null, ultimaFala = "";
         
         // VOZ PREMIUM
         const synth = window.speechSynthesis;
@@ -156,7 +162,6 @@
             return null;
         }
 
-        // FALA E NAVEGAÇÃO
         function falar(texto) {
             if (texto === ultimaFala) return; 
             ultimaFala = texto;
@@ -192,18 +197,13 @@
                 const zProximo = locais[proximo].z;
                 const zDestino = locais[destinoAtual].z;
 
-                // REGRA 1: Dica de atalho ao ser direcionado para a Rampa Maior
                 if (proximo === "Rampa maior" && zDestino > 0) {
                     instrucao = "Para chegar no segundo andar mais rápido, vá para a rampa maior e suba. Se não, continue reto até a rampa menor.";
-                }
-                // REGRA 2: Ao chegar na Rampa Menor e precisar subir
-                else if (posicaoAtual === "Rampa menor" && zProximo > zAtual) {
+                } else if (posicaoAtual === "Rampa menor" && zProximo > zAtual) {
                     alertaUI.style.display = "block";
                     alertaUI.innerText = `⚠️ Suba a Rampa Menor para o andar ${zProximo}`;
                     instrucao = `Você chegou na rampa menor. Agora suba, seguindo sempre o corrimão à esquerda.`;
-                } 
-                // Lógica Padrão de Corrimão para os outros andares
-                else if (zProximo > zAtual) {
+                } else if (zProximo > zAtual) {
                     alertaUI.style.display = "block";
                     alertaUI.innerText = `⚠️ Suba para o andar ${zProximo} (Corrimão à Esquerda)`;
                     instrucao = `Suba em direção a ${proximo}, seguindo sempre o corrimão à esquerda.`;
@@ -224,7 +224,8 @@
             localIdentificado = local;
             document.querySelectorAll('#menu-origem .btn-local').forEach(b => b.classList.remove('origem-ativa'));
             event.target.classList.add('origem-ativa');
-            document.getElementById("local-atual").innerText = "📍 Localização (Manual): " + local;
+            let zInfo = locais[local].z;
+            document.getElementById("local-atual").innerText = `📍 Localização (Andar ${zInfo}): ${local}`;
             atualizarNavegacao(local);
         }
 
@@ -236,9 +237,8 @@
             if(localIdentificado) atualizarNavegacao(localIdentificado);
         }
 
-        // --- SISTEMA DE UPLOAD E FILTRO TOPOLÓGICO ---
+        // --- SISTEMA DE UPLOAD MULTI-MODELOS SIMULTÂNEOS ---
 
-        // Função que mapeia os limites físicos (Raio de Visão)
         function obterClassesPermitidas(inicio) {
             if (!inicio || !locais[inicio]) return null; 
 
@@ -252,9 +252,9 @@
                     if (!visitados.includes(v)) {
                         visitados.push(v);
                         if (locais[v].silencioso) {
-                            fila.push(v); // Atravessa a curva invisível
+                            fila.push(v); 
                         } else {
-                            permitidos.push(v); // Adiciona lugar real acessível
+                            permitidos.push(v); 
                         }
                     }
                 });
@@ -263,13 +263,16 @@
         }
 
         async function init() {
-            document.getElementById("btn-init").innerText = "CARREGANDO MODELO...";
-            model = await tmImage.load(MODEL_URL + "model.json", MODEL_URL + "metadata.json");
+            document.getElementById("btn-init").innerText = "BAIXANDO REDES NEURAIS...";
+            
+            modelosCarregados[0] = await tmImage.load(MODELOS_URLS[0] + "model.json", MODELOS_URLS[0] + "metadata.json");
+            modelosCarregados[1] = await tmImage.load(MODELOS_URLS[1] + "model.json", MODELOS_URLS[1] + "metadata.json");
+            modelosCarregados[2] = await tmImage.load(MODELOS_URLS[2] + "model.json", MODELOS_URLS[2] + "metadata.json");
             
             document.getElementById("btn-init").style.display = "none";
             document.getElementById("label-upload").style.display = "block"; 
             
-            falar("Sistema pronto. Por favor, escolha um destino e envie uma foto.");
+            falar("Módulos de inteligência carregados. Escolha o destino e envie a foto.");
         }
 
         function processarImagem(event) {
@@ -280,7 +283,7 @@
             imgElement.src = URL.createObjectURL(file);
             imgElement.style.display = "block";
             
-            document.getElementById("debug-ia").innerText = "🧠 Analisando imagem...";
+            document.getElementById("debug-ia").innerText = `🧠 Verificando andares acessíveis...`;
 
             imgElement.onload = async () => {
                 await predictUpload(imgElement);
@@ -288,61 +291,69 @@
         }
 
         async function predictUpload(imageElement) {
-            if(!model) return;
-            const prediction = await model.predict(imageElement);
+            let andarAtual = localIdentificado ? locais[localIdentificado].z : 0;
+            let classesPermitidas = obterClassesPermitidas(localIdentificado);
             
+            // Descobre quais andares estão ao nosso redor fisicamente
+            let andaresParaTestar = new Set([andarAtual]); 
+            if (classesPermitidas) {
+                classesPermitidas.forEach(c => {
+                    if(locais[c]) andaresParaTestar.add(locais[c].z);
+                });
+            }
+
             let melhor = "", max = 0;
             let textoIA_Bruta = ""; 
             let textoFiltro = "";
-            
-            let classesPermitidas = obterClassesPermitidas(localIdentificado);
-            let andarAtual = localIdentificado ? locais[localIdentificado].z : null;
 
-            for(let i=0; i<model.getTotalClasses(); i++) {
-                let nomeClasse = prediction[i].className;
-                let prob = prediction[i].probability;
-                
-                // 1. Visão Bruta
-                if (prob > 0.05) {
-                    textoIA_Bruta += `${nomeClasse}: ${(prob * 100).toFixed(0)}% | `;
-                }
-                
-                // 2. Filtro de Realidade (Topologia e Andar)
-                let bloqueado = false;
-                if (classesPermitidas !== null) {
-                    if (!classesPermitidas.includes(nomeClasse)) bloqueado = true;
-                } else if (andarAtual !== null && locais[nomeClasse]) {
-                    let andarDaClasse = locais[nomeClasse].z;
-                    let ehConexao = nomeClasse.toLowerCase().includes("rampa") || nomeClasse.toLowerCase().includes("escada");
-                    if (andarDaClasse !== andarAtual && !ehConexao) bloqueado = true;
-                }
+            // Testa a foto em todos os modelos de IA dos andares acessíveis
+            for (let andar of andaresParaTestar) {
+                let modeloAtivo = modelosCarregados[andar];
+                if (!modeloAtivo) continue;
 
-                if (bloqueado) continue; 
+                const prediction = await modeloAtivo.predict(imageElement);
+                textoIA_Bruta += `<br><b>Andar ${andar}:</b> `;
 
-                // 3. Resultado após o filtro
-                if (prob > 0.01) { 
-                    textoFiltro += `${nomeClasse}: ${(prob * 100).toFixed(0)}% | `;
-                }
+                for(let i=0; i<modeloAtivo.getTotalClasses(); i++) {
+                    let nomeClasse = prediction[i].className;
+                    let prob = prediction[i].probability;
+                    
+                    // 1. Visão Bruta
+                    if (prob > 0.05) {
+                        textoIA_Bruta += `${nomeClasse}: ${(prob * 100).toFixed(0)}% | `;
+                    }
+                    
+                    // 2. Filtro de Vizinhança
+                    let bloqueado = false;
+                    if (classesPermitidas !== null) {
+                        if (!classesPermitidas.includes(nomeClasse)) bloqueado = true;
+                    }
 
-                // Aceitação a partir de 20% (já que removemos o lixo visual)
-                if(prob > 0.20 && prob > max) {
-                    max = prob; 
-                    melhor = nomeClasse;
+                    if (bloqueado) continue; 
+
+                    // 3. Resultado após o filtro
+                    if (prob > 0.01) { 
+                        textoFiltro += `${nomeClasse} (Z=${andar}): ${(prob * 100).toFixed(0)}% | `;
+                    }
+
+                    if(prob > 0.20 && prob > max) {
+                        max = prob; 
+                        melhor = nomeClasse;
+                    }
                 }
             }
 
-            // Exibe o painel Raio-X
             document.getElementById("debug-ia").innerHTML = 
-                `<span style="color:#aaa;">🧠 <b>Visão Bruta da IA:</b><br>${textoIA_Bruta || "Nada claro"}</span><br><br>
+                `<span style="color:#aaa;">🧠 <b>Visão Bruta de Múltiplas IAs:</b>${textoIA_Bruta || "Nada claro"}</span><br><br>
                  <span style="color:#00ff88;">🛡️ <b>Passou no Filtro Físico:</b><br>${textoFiltro || "Nenhuma classe vizinha detectada"}</span>`;
 
             if(melhor !== "") {
                 if(locais[melhor]) {
                     localIdentificado = melhor;
-                    document.getElementById("local-atual").innerHTML = `<span style="color: #00ff88;">🖼️ Foto detectou: ${melhor}</span>`;
+                    document.getElementById("local-atual").innerHTML = `<span style="color: #00ff88;">🖼️ Câmera validou: ${melhor} (Andar ${locais[melhor].z})</span>`;
                     atualizarNavegacao(melhor);
                 } else {
-                    document.getElementById("local-atual").innerHTML = `<span style="color: red;">❌ Erro: '${melhor}' não existe no mapa.</span>`;
+                    document.getElementById("local-atual").innerHTML = `<span style="color: red;">❌ Erro crítico: A IA retornou '${melhor}', mas ele não existe.</span>`;
                 }
             } else {
                 document.getElementById("local-atual").innerHTML = `<span style="color: #ffaa00;">⚠️ Nenhuma imagem no raio de visão atingiu a certeza mínima.</span>`;
