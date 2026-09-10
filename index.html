@@ -141,26 +141,34 @@
             };
 
             recognition.onresult = (event) => {
-                const fala = event.results[0][0].transcript.toLowerCase();
-                let debugUI = document.getElementById("debug-ia");
+                // Função para limpar acentos e cedilhas
+                const removerAcentos = (str) => {
+                    return str.normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+                };
+
+                let falaOriginal = event.results[0][0].transcript.toLowerCase();
+                let falaLimpa = removerAcentos(falaOriginal);
                 
+                let debugUI = document.getElementById("debug-ia");
                 let destinoEncontrado = null;
                 const chavesLocais = Object.keys(locais);
                 
                 for (let local of chavesLocais) {
-                    if (fala.includes(local.toLowerCase()) && !locais[local].silencioso) {
+                    let localLimpo = removerAcentos(local.toLowerCase());
+                    
+                    if (falaLimpa.includes(localLimpo) && !locais[local].silencioso) {
                         destinoEncontrado = local;
                         break;
                     }
                 }
 
                 if (destinoEncontrado) {
-                    debugUI.innerHTML = `🗣️ Voz detectou: "${fala}"<br>✅ Destino definido: <b>${destinoEncontrado}</b>`;
+                    debugUI.innerHTML = `🗣️ Voz detectou: "${falaOriginal}"<br>✅ Destino definido: <b>${destinoEncontrado}</b>`;
                     falar(`Destino configurado para ${destinoEncontrado}. Se desejar, tire uma foto para começar.`);
                     setDestino(destinoEncontrado);
                 } else {
-                    debugUI.innerHTML = `🗣️ Voz detectou: "${fala}"<br>❌ Local não encontrado no mapa.`;
-                    falar("Não encontrei esse local. Toque no botão e tente novamente.");
+                    debugUI.innerHTML = `🗣️ Voz detectou: "${falaOriginal}"<br>❌ Local não encontrado no mapa.`;
+                    falar("Não encontrei esse local. Toque no botão amarelo e tente novamente.");
                 }
             };
 
