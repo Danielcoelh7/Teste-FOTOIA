@@ -3,30 +3,26 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Navegador Indoor Federal - IAs Modulares (Final)</title>
+    <title>Navegação Acessível Autónoma</title>
     <style>
-        body { font-family: sans-serif; background: #000; color: white; display: flex; flex-direction: column; align-items: center; padding: 20px; }
-        
-        .painel-teste { background: #1a1a1a; padding: 15px; border-radius: 15px; width: 100%; max-width: 450px; margin-bottom: 20px; border: 1px dashed #444; }
-        .grid-botoes { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 10px; }
+        body { font-family: sans-serif; background: #000; color: white; display: flex; flex-direction: column; align-items: center; padding: 20px; text-align: center; }
         
         button { padding: 12px; border-radius: 8px; border: none; cursor: pointer; font-weight: bold; font-size: 0.8rem; transition: 0.2s; }
-        .btn-start { background: #00ff88; color: #000; width: 100%; margin-bottom: 10px; font-size: 1.1rem; }
-        .btn-upload { background: #0088ff; color: #fff; width: 100%; margin-bottom: 20px; font-size: 1.1rem; text-align: center; display: inline-block; box-sizing: border-box; }
+        .btn-start { background: #00ff88; color: #000; width: 100%; max-width: 450px; margin-bottom: 10px; font-size: 1.1rem; }
+        .btn-upload { background: #0088ff; color: #fff; width: 100%; max-width: 450px; margin-bottom: 20px; font-size: 1.1rem; text-align: center; display: inline-block; box-sizing: border-box; padding: 15px; border-radius: 10px;}
         
-        .btn-local { background: #333; color: #fff; border: 1px solid #444; }
-        .btn-local.origem-ativa { background: #ffaa00; color: #000; border-color: #fff; }
-        .btn-local.destino-ativo { background: #00ff88; color: #000; border-color: #fff; }
+        /* Estilo do Botão Gigante de Acessibilidade */
+        #btn-ouvir { width: 100%; height: 120px; background: #ffaa00; color: #000; font-size: 1.3rem; border-radius: 15px; border: none; margin-top: 10px; font-weight: bold; box-shadow: 0 8px 15px rgba(255, 170, 0, 0.3); text-transform: uppercase; }
+        #btn-ouvir:active { background: #e69900; transform: scale(0.98); }
 
         #status-box { padding: 20px; background: #111; border-radius: 15px; text-align: center; width: 100%; max-width: 450px; border: 2px solid #00ff88; box-shadow: 0 0 15px rgba(0,255,136,0.2); }
         #direcao-texto { font-size: 1.5rem; color: #00ff88; font-weight: bold; margin: 10px 0; min-height: 1.5em; text-transform: uppercase; }
         #instrucao { color: #ccc; font-size: 0.9rem; }
-        h4 { margin: 5px 0; color: #00ff88; text-transform: uppercase; font-size: 0.75rem; letter-spacing: 1px; }
         
         .alerta-andar { display: none; margin-top: 10px; padding: 10px; background: rgba(255, 170, 0, 0.2); border: 2px solid #ffaa00; border-radius: 8px; color: #ffaa00; font-weight: bold; text-transform: uppercase; font-size: 0.9rem; animation: piscar 1.5s infinite; }
         @keyframes piscar { 50% { opacity: 0.6; } }
 
-        #preview-imagem { width: 220px; height: 220px; object-fit: cover; border: 3px solid #0088ff; border-radius: 20px; display: none; margin-bottom: 20px; background: #111; }
+        #preview-imagem { width: 200px; height: 200px; object-fit: cover; border: 3px solid #0088ff; border-radius: 20px; display: none; margin-bottom: 20px; background: #111; }
         input[type="file"] { display: none; }
         
         #debug-ia { font-size: 0.75rem; background: #222; padding: 10px; border-radius: 8px; margin-top: 15px; text-align: left; word-wrap: break-word; line-height: 1.4; border: 1px dashed #555;}
@@ -34,39 +30,37 @@
 </head>
 <body>
 
-    <h1>Assistente de Navegação</h1>
+    <h1>Navegação Acessível</h1>
     
-    <button class="btn-start" id="btn-init" onclick="init()">1. CARREGAR IAs MODULARES</button>
+    <button class="btn-start" id="btn-init" onclick="init()">1. INICIAR SISTEMA (CARREGAR IA)</button>
     
     <label for="image-upload" class="btn-upload" id="label-upload" style="display: none; cursor: pointer;">
-        2. ENVIAR FOTO DO LOCAL
+        📸 TIRAR FOTO PARA SE LOCALIZAR
     </label>
-    <input type="file" id="image-upload" accept="image/*" onchange="processarImagem(event)">
+    <input type="file" id="image-upload" accept="image/*" capture="environment" onchange="processarImagem(event)">
 
     <img id="preview-imagem" alt="Pré-visualização da imagem">
 
     <div id="status-box">
-        <div id="instrucao">Selecione um destino abaixo</div>
+        <div id="instrucao">Aguardando comando de voz...</div>
         <div id="direcao-texto">---</div>
         <div id="alerta-andar" class="alerta-andar">⚠️ Mudança de Andar</div>
-        <div id="local-atual" style="font-size: 0.9rem; color: #888; margin-top: 10px; font-weight: bold;">Aguardando Foto...</div>
+        <div id="local-atual" style="font-size: 0.9rem; color: #888; margin-top: 10px; font-weight: bold;">Posição: Desconhecida</div>
         
         <div id="debug-ia">🧠 <b>Painel Raio-X:</b> Aguardando análise...</div>
     </div>
 
-    <div class="painel-teste" style="margin-top: 20px;">
-        <h4>1. Onde você está? (Define o modelo da IA)</h4>
-        <div class="grid-botoes" id="menu-origem"></div>
-        
-        <h4 style="margin-top:20px;">2. Para onde deseja ir? (Destino)</h4>
-        <div class="grid-botoes" id="menu-destino"></div>
+    <!-- BOTÃO DE ACESSIBILIDADE PARA DESTINO -->
+    <div style="width: 100%; max-width: 450px;">
+        <button id="btn-ouvir" onclick="ativarMicrofone()">
+            🎤 Toque para falar o destino
+        </button>
     </div>
 
     <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@latest/dist/tf.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/@teachablemachine/image@latest/dist/teachablemachine-image.min.js"></script>
 
     <script>
-        // Mapeamento dos modelos por Andar (Eixo Z)
         const MODELOS_URLS = {
             0: "https://teachablemachine.withgoogle.com/models/gPTMKh0iV/",
             1: "https://teachablemachine.withgoogle.com/models/m8i3tW5uf/",
@@ -74,7 +68,6 @@
         };
         let modelosCarregados = {};
 
-        // Base de dados Integrada com correção de vias bidirecionais
         const locais = {
             "Portaria": { x: 439, y: 18, z: 0, vizinhos: ["Caminho entrada"], silencioso: false },
             "Caminho entrada": { x: 434, y: 107, z: 0, vizinhos: ["Portaria", "Rampa maior"], silencioso: false },
@@ -111,7 +104,6 @@
 
         let destinoAtual = null, localIdentificado = null, ultimaFala = "";
         
-        // VOZ PREMIUM
         const synth = window.speechSynthesis;
         let vozPreferida = null;
 
@@ -125,7 +117,69 @@
         }
         if (speechSynthesis.onvoiceschanged !== undefined) speechSynthesis.onvoiceschanged = carregarVozes;
 
-        // ALGORITMO A* COM DISTÂNCIA 3D
+        function falar(texto) {
+            if (texto === ultimaFala) return; 
+            ultimaFala = texto;
+            synth.cancel(); 
+            const utter = new SpeechSynthesisUtterance(texto);
+            utter.lang = 'pt-BR';
+            if (vozPreferida) utter.voice = vozPreferida;
+            utter.rate = 1.05;  
+            synth.speak(utter);
+        }
+
+        const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+        let recognition = null;
+
+        if (SpeechRecognition) {
+            recognition = new SpeechRecognition();
+            recognition.lang = 'pt-BR';
+            recognition.continuous = false;
+            
+            recognition.onstart = () => {
+                if (navigator.vibrate) navigator.vibrate(50);
+            };
+
+            recognition.onresult = (event) => {
+                const fala = event.results[0][0].transcript.toLowerCase();
+                let debugUI = document.getElementById("debug-ia");
+                
+                let destinoEncontrado = null;
+                const chavesLocais = Object.keys(locais);
+                
+                for (let local of chavesLocais) {
+                    if (fala.includes(local.toLowerCase()) && !locais[local].silencioso) {
+                        destinoEncontrado = local;
+                        break;
+                    }
+                }
+
+                if (destinoEncontrado) {
+                    debugUI.innerHTML = `🗣️ Voz detectou: "${fala}"<br>✅ Destino definido: <b>${destinoEncontrado}</b>`;
+                    falar(`Destino configurado para ${destinoEncontrado}. Se desejar, tire uma foto para começar.`);
+                    setDestino(destinoEncontrado);
+                } else {
+                    debugUI.innerHTML = `🗣️ Voz detectou: "${fala}"<br>❌ Local não encontrado no mapa.`;
+                    falar("Não encontrei esse local. Toque no botão e tente novamente.");
+                }
+            };
+
+            recognition.onerror = (event) => {
+                falar("Não consegui ouvir. Tente novamente.");
+            };
+        }
+
+        function ativarMicrofone() {
+            if (!recognition) {
+                falar("Seu navegador não suporta reconhecimento de voz.");
+                return;
+            }
+            falar("Diga o seu destino após o bipe.");
+            setTimeout(() => {
+                try { recognition.start(); } catch(e) {}
+            }, 2500); 
+        }
+
         function calcularDistancia(a, b) {
             return Math.sqrt(
                 Math.pow(locais[a].x - locais[b].x, 2) + 
@@ -162,23 +216,12 @@
             return null;
         }
 
-        function falar(texto) {
-            if (texto === ultimaFala) return; 
-            ultimaFala = texto;
-            synth.cancel(); 
-            const utter = new SpeechSynthesisUtterance(texto);
-            utter.lang = 'pt-BR';
-            if (vozPreferida) utter.voice = vozPreferida;
-            utter.rate = 1.05;  
-            synth.speak(utter);
-        }
-
         function atualizarNavegacao(posicaoAtual) {
             const alertaUI = document.getElementById("alerta-andar");
             alertaUI.style.display = "none";
 
             if (!destinoAtual) {
-                falar("Você está em " + posicaoAtual + ". Para onde deseja ir?");
+                falar("Você está em " + posicaoAtual + ". Toque no botão amarelo para dizer onde deseja ir.");
                 return;
             }
 
@@ -220,24 +263,11 @@
             }
         }
 
-        function manualSetOrigem(local) {
-            localIdentificado = local;
-            document.querySelectorAll('#menu-origem .btn-local').forEach(b => b.classList.remove('origem-ativa'));
-            event.target.classList.add('origem-ativa');
-            let zInfo = locais[local].z;
-            document.getElementById("local-atual").innerText = `📍 Localização (Andar ${zInfo}): ${local}`;
-            atualizarNavegacao(local);
-        }
-
         function setDestino(local) {
             destinoAtual = local;
-            document.querySelectorAll('#menu-destino .btn-local').forEach(b => b.classList.remove('destino-ativo'));
-            event.target.classList.add('destino-ativo');
             document.getElementById("instrucao").innerText = "Indo para: " + local;
             if(localIdentificado) atualizarNavegacao(localIdentificado);
         }
-
-        // --- SISTEMA DE UPLOAD MULTI-MODELOS SIMULTÂNEOS ---
 
         function obterClassesPermitidas(inicio) {
             if (!inicio || !locais[inicio]) return null; 
@@ -272,7 +302,7 @@
             document.getElementById("btn-init").style.display = "none";
             document.getElementById("label-upload").style.display = "block"; 
             
-            falar("Módulos de inteligência carregados. Escolha o destino e envie a foto.");
+            falar("Sistema pronto. Toque no botão inferior para dizer seu destino.");
         }
 
         function processarImagem(event) {
@@ -283,7 +313,7 @@
             imgElement.src = URL.createObjectURL(file);
             imgElement.style.display = "block";
             
-            document.getElementById("debug-ia").innerText = `🧠 Verificando andares acessíveis...`;
+            document.getElementById("debug-ia").innerText = `🧠 Analisando ambiente...`;
 
             imgElement.onload = async () => {
                 await predictUpload(imgElement);
@@ -291,52 +321,57 @@
         }
 
         async function predictUpload(imageElement) {
-            let andarAtual = localIdentificado ? locais[localIdentificado].z : 0;
             let classesPermitidas = obterClassesPermitidas(localIdentificado);
+            let andaresParaTestar = new Set();
             
-            // Descobre quais andares estão ao nosso redor fisicamente
-            let andaresParaTestar = new Set([andarAtual]); 
-            if (classesPermitidas) {
-                classesPermitidas.forEach(c => {
-                    if(locais[c]) andaresParaTestar.add(locais[c].z);
-                });
+            // LOCALIZAÇÃO GLOBAL: Se o sistema não sabe onde está, procura em TODOS os andares
+            if (!localIdentificado) {
+                andaresParaTestar = new Set([0, 1, 2]);
+            } else {
+                // Se já sabe, procura apenas nos vizinhos físicos permitidos
+                andaresParaTestar.add(locais[localIdentificado].z);
+                if (classesPermitidas) {
+                    classesPermitidas.forEach(c => {
+                        if(locais[c]) andaresParaTestar.add(locais[c].z);
+                    });
+                }
             }
 
             let melhor = "", max = 0;
             let textoIA_Bruta = ""; 
             let textoFiltro = "";
 
-            // Testa a foto em todos os modelos de IA dos andares acessíveis
             for (let andar of andaresParaTestar) {
                 let modeloAtivo = modelosCarregados[andar];
                 if (!modeloAtivo) continue;
 
                 const prediction = await modeloAtivo.predict(imageElement);
-                textoIA_Bruta += `<br><b>Andar ${andar}:</b> `;
+                if (!localIdentificado) textoIA_Bruta += `<br><b>Andar ${andar}:</b> `;
 
                 for(let i=0; i<modeloAtivo.getTotalClasses(); i++) {
                     let nomeClasse = prediction[i].className;
                     let prob = prediction[i].probability;
                     
-                    // 1. Visão Bruta
                     if (prob > 0.05) {
                         textoIA_Bruta += `${nomeClasse}: ${(prob * 100).toFixed(0)}% | `;
                     }
                     
-                    // 2. Filtro de Vizinhança
                     let bloqueado = false;
-                    if (classesPermitidas !== null) {
+                    // Só aplica o filtro de vizinhos se já soubermos de onde estamos partindo
+                    if (localIdentificado !== null && classesPermitidas !== null) {
                         if (!classesPermitidas.includes(nomeClasse)) bloqueado = true;
                     }
 
                     if (bloqueado) continue; 
 
-                    // 3. Resultado após o filtro
                     if (prob > 0.01) { 
                         textoFiltro += `${nomeClasse} (Z=${andar}): ${(prob * 100).toFixed(0)}% | `;
                     }
 
-                    if(prob > 0.20 && prob > max) {
+                    // Se estivermos perdidos, exigimos uma precisão maior (40%) para o primeiro palpite
+                    let limiteAceitacao = localIdentificado ? 0.20 : 0.40;
+                    
+                    if(prob > limiteAceitacao && prob > max) {
                         max = prob; 
                         melhor = nomeClasse;
                     }
@@ -344,40 +379,22 @@
             }
 
             document.getElementById("debug-ia").innerHTML = 
-                `<span style="color:#aaa;">🧠 <b>Visão Bruta de Múltiplas IAs:</b>${textoIA_Bruta || "Nada claro"}</span><br><br>
-                 <span style="color:#00ff88;">🛡️ <b>Passou no Filtro Físico:</b><br>${textoFiltro || "Nenhuma classe vizinha detectada"}</span>`;
+                `<span style="color:#aaa;">🧠 <b>Visão Bruta:</b>${textoIA_Bruta || "Nada claro"}</span><br><br>
+                 <span style="color:#00ff88;">🛡️ <b>Passou no Filtro:</b><br>${textoFiltro || "Nenhuma classe detectada"}</span>`;
 
             if(melhor !== "") {
                 if(locais[melhor]) {
                     localIdentificado = melhor;
-                    document.getElementById("local-atual").innerHTML = `<span style="color: #00ff88;">🖼️ Câmera validou: ${melhor} (Andar ${locais[melhor].z})</span>`;
+                    document.getElementById("local-atual").innerHTML = `<span style="color: #00ff88;">🖼️ Local Confirmado: ${melhor} (Andar ${locais[melhor].z})</span>`;
                     atualizarNavegacao(melhor);
                 } else {
                     document.getElementById("local-atual").innerHTML = `<span style="color: red;">❌ Erro crítico: A IA retornou '${melhor}', mas ele não existe.</span>`;
                 }
             } else {
-                document.getElementById("local-atual").innerHTML = `<span style="color: #ffaa00;">⚠️ Nenhuma imagem no raio de visão atingiu a certeza mínima.</span>`;
+                document.getElementById("local-atual").innerHTML = `<span style="color: #ffaa00;">⚠️ Não reconheci o local. Tire uma foto mais nítida do corredor.</span>`;
+                if (!localIdentificado) falar("Ainda não sei onde estamos. Por favor, tire outra foto do ambiente.");
             }
         }
-
-        window.onload = () => {
-            const mOrigem = document.getElementById("menu-origem");
-            const mDestino = document.getElementById("menu-destino");
-            
-            Object.keys(locais).forEach(l => {
-                if(locais[l].silencioso) return; 
-                
-                const btnO = document.createElement("button");
-                btnO.className = "btn-local"; btnO.innerText = l + (locais[l].z > 0 ? ` (Andar ${locais[l].z})` : "");
-                btnO.onclick = (e) => manualSetOrigem(l);
-                mOrigem.appendChild(btnO);
-
-                const btnD = document.createElement("button");
-                btnD.className = "btn-local"; btnD.innerText = l + (locais[l].z > 0 ? ` (Andar ${locais[l].z})` : "");
-                btnD.onclick = (e) => setDestino(l);
-                mDestino.appendChild(btnD);
-            });
-        };
     </script>
 </body>
 </html>
