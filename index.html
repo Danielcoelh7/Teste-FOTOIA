@@ -26,6 +26,8 @@
         input[type="file"] { display: none; }
         
         #debug-ia { font-size: 0.75rem; background: #222; padding: 10px; border-radius: 8px; margin-top: 15px; text-align: left; word-wrap: break-word; line-height: 1.4; border: 1px dashed #555;}
+
+        #btn-repetir { background: #333; color: #fff; width: 100%; max-width: 450px; margin-top: 10px; padding: 10px; font-size: 0.9rem; border-radius: 8px; }
     </style>
 </head>
 <body>
@@ -42,7 +44,7 @@
     <img id="preview-imagem" alt="Pré-visualização da imagem">
 
     <div id="status-box">
-        <div id="instrucao">Aguardando comando de voz...</div>
+        <div id="instrucao">Aguardando...</div>
         <div id="direcao-texto">---</div>
         <div id="alerta-andar" class="alerta-andar">⚠️ Mudança de Andar</div>
         <div id="local-atual" style="font-size: 0.9rem; color: #888; margin-top: 10px; font-weight: bold;">Posição: Desconhecida</div>
@@ -53,12 +55,15 @@
     <!-- BOTÃO DE ACESSIBILIDADE PARA DESTINO -->
     <div style="width: 100%; max-width: 450px;">
         <button id="btn-ouvir" onclick="ativarMicrofone()">
-            🎤 Toque para falar o destino
+            🎤 Toque para falar
+        </button>
+        <button id="btn-repetir" onclick="repetirUltimaInstrucao()">
+            🔁 Repetir última instrução
         </button>
     </div>
 
-    <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@latest/dist/tf.min.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/@teachablemachine/image@latest/dist/teachablemachine-image.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@4.20.0/dist/tf.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@teachablemachine/image@0.8.5/dist/teachablemachine-image.min.js"></script>
 
     <script>
         const MODELOS_URLS = {
@@ -75,15 +80,15 @@
             "Refeitorio": { x: 328, y: 258, z: 0, vizinhos: ["Refeitorio fora", "Saida do refeitório"], silencioso: false },
             "Saida do refeitório": { x: 107, y: 418, z: 0, vizinhos: ["Refeitorio", "Rampa maior"], silencioso: true },
 
-            "Rampa maior": { x: 443, y: 369, z: 0, vizinhos: ["Caminho entrada", "Saida do refeitório", "Rampa menor", "Centro"], silencioso: false }, 
-            "Rampa menor": { x: 413, y: 427, z: 0, vizinhos: ["Rampa maior", "patio"], silencioso: false },
+            "Rampa maior": { x: 443, y: 369, z: 0, vizinhos: ["Caminho entrada", "Saida do refeitório", "Rampa menor", "Centro"], silencioso: false, tipo: "rampa", corrimao: "esquerda" }, 
+            "Rampa menor": { x: 413, y: 427, z: 0, vizinhos: ["Rampa maior", "patio"], silencioso: false, tipo: "rampa", corrimao: "esquerda" },
             "patio": { x: 534, y: 512, z: 0, vizinhos: ["Rampa menor", "patio central"], silencioso: false }, 
 
             "biblioteca": { x: 200, y: 600, z: 0, vizinhos: ["corredor biblioteca"], silencioso: false },
             "corredor biblioteca": { x: 300, y: 600, z: 0, vizinhos: ["caminho centro", "biblioteca"], silencioso: false },
             
             "caminho centro": { x: 400, y: 600, z: 0, vizinhos: ["corredor biblioteca", "Central", "caminho cantina", "Escada0", "rampa0"], silencioso: false },
-            "Central": { x: 450, y: 600, z: 0, vizinhos: ["caminho centro", "patio central", "rampa0", "caminho cantina", "Escada0"], silencioso: false },
+            "Central": { x: 450, y: 600, z: 0, vizinhos: ["caminho centro", "corredor biblioteca", "patio central", "rampa0", "caminho cantina", "Escada0"], silencioso: false },
             
             "caminho cantina": { x: 400, y: 700, z: 0, vizinhos: ["Central", "cantina", "caminho centro"], silencioso: false },
             "cantina": { x: 400, y: 800, z: 0, vizinhos: ["caminho cantina"], silencioso: false },
@@ -91,10 +96,10 @@
             
             "patio central": { x: 500, y: 600, z: 0, vizinhos: ["Escada0", "Central", "rampa0", "patio"], silencioso: false },
             
-            "rampa0": { x: 600, y: 600, z: 0, vizinhos: ["patio central", "caminho centro", "Central", "rampa2"], silencioso: false },
-            "rampa2": { x: 600, y: 600, z: 1, vizinhos: ["rampa0", "Centro", "rampa3", "corredor central"], silencioso: false },
-            "rampa3": { x: 650, y: 600, z: 1, vizinhos: ["rampa2", "rampa4", "Centro", "corredor central"], silencioso: false },
-            "rampa4": { x: 700, y: 600, z: 2, vizinhos: ["rampa3"], silencioso: false },
+            "rampa0": { x: 600, y: 600, z: 0, vizinhos: ["patio central", "caminho centro", "Central", "rampa2"], silencioso: false, tipo: "rampa", corrimao: "esquerda" },
+            "rampa2": { x: 600, y: 600, z: 1, vizinhos: ["rampa0", "Centro", "rampa3", "corredor central"], silencioso: false, tipo: "rampa", corrimao: "esquerda" },
+            "rampa3": { x: 650, y: 600, z: 1, vizinhos: ["rampa2", "rampa4", "Centro", "corredor central"], silencioso: false, tipo: "rampa", corrimao: "esquerda" },
+            "rampa4": { x: 700, y: 600, z: 2, vizinhos: ["rampa3"], silencioso: false, tipo: "rampa", corrimao: "esquerda" },
 
             "corredor central": { x: 600, y: 500, z: 1, vizinhos: ["Centro", "rampa2", "rampa3"], silencioso: false },
             "Centro": { x: 700, y: 500, z: 1, vizinhos: ["corredor central", "corredor esquerda", "corredor direita", "Rampa maior", "rampa2", "rampa3"], silencioso: false },
@@ -102,8 +107,38 @@
             "corredor direita": { x: 900, y: 500, z: 1, vizinhos: ["Centro"], silencioso: false }
         };
 
+        // Instruções manuais por trecho (origem -> destino), no formato
+        // "ORIGEM|DESTINO": "texto falado/exibido". Quando o próximo passo do
+        // A* corresponder a um desses pares, essa frase é usada no lugar da
+        // instrução genérica "Siga para X" / lógica de subir-descer por z.
+        const instrucoesManuais = {
+            "Portaria|Caminho entrada": "Siga em frente.",
+            "Caminho entrada|Rampa maior": "Siga em frente.",
+            "Rampa maior|Saida do refeitório": "Vire à esquerda.",
+            "Rampa maior|Rampa menor": "Siga em frente.",
+            "Rampa maior|Centro": "Vire à direita e suba a rampa.",
+            "Rampa menor|patio": "Suba a rampa menor, seguindo sempre o corrimão à esquerda.",
+            "patio|patio central": "Siga em frente até o centro.",
+            "patio central|Central": "Siga em frente.",
+            "patio central|Escada0": "Siga em frente até a escada, à esquerda.",
+            "Central|corredor biblioteca": "Vire à direita até a biblioteca.",
+            "Central|rampa0": "Vire à direita e depois à esquerda, até encontrar o piso tátil.",
+            "rampa0|rampa2": "Suba.",
+            "rampa0|Central": "Desça.",
+            "rampa2|rampa3": "Está ao lado. Continue subindo a rampa, seguindo sempre o corrimão à esquerda.",
+            "rampa3|rampa4": "Suba.",
+            "rampa2|Centro": "Siga em frente até o piso tátil, vire à esquerda e vire novamente à esquerda depois de andar um pouco.",
+            "Centro|corredor esquerda": "Ao subir a rampa maior, vire à esquerda e ande até o piso tátil, depois vire à esquerda.",
+            "Centro|corredor central": "Siga o piso tátil à direita até a interligação com o piso tátil do centro.",
+            "Centro|corredor direita": "Siga apenas o piso tátil, à direita."
+        };
+
         let destinoAtual = null, localIdentificado = null, ultimaFala = "";
         
+        // NOVAS VARIÁVEIS DE ESTADO DA VOZ
+        let andarConhecido = null; 
+        let aguardandoAndar = true; 
+
         const synth = window.speechSynthesis;
         let vozPreferida = null;
 
@@ -115,10 +150,16 @@
                 if (!vozPreferida) vozPreferida = vozesPtBr[0];
             }
         }
+        // Correção: algumas engines (ex.: Chrome desktop na 1ª carga) já têm as
+        // vozes disponíveis e nunca disparam "onvoiceschanged". Chamamos uma vez
+        // de imediato, além de manter o listener para quando carregam tarde.
+        carregarVozes();
         if (speechSynthesis.onvoiceschanged !== undefined) speechSynthesis.onvoiceschanged = carregarVozes;
 
-        function falar(texto) {
-            if (texto === ultimaFala) return; 
+        function falar(texto, forcar) {
+            // "forcar" permite repetir uma instrução idêntica à anterior
+            // (ex.: usuário pediu para repetir, ou tirou nova foto e caiu no mesmo lugar).
+            if (texto === ultimaFala && !forcar) return; 
             ultimaFala = texto;
             synth.cancel(); 
             const utter = new SpeechSynthesisUtterance(texto);
@@ -126,6 +167,14 @@
             if (vozPreferida) utter.voice = vozPreferida;
             utter.rate = 1.05;  
             synth.speak(utter);
+        }
+
+        function repetirUltimaInstrucao() {
+            if (ultimaFala) {
+                falar(ultimaFala, true);
+            } else {
+                falar("Ainda não há nenhuma instrução para repetir.", true);
+            }
         }
 
         const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
@@ -141,21 +190,47 @@
             };
 
             recognition.onresult = (event) => {
-                // Função para limpar acentos e cedilhas
                 const removerAcentos = (str) => {
                     return str.normalize("NFD").replace(/[\u0300-\u036f]/g, "");
                 };
 
                 let falaOriginal = event.results[0][0].transcript.toLowerCase();
                 let falaLimpa = removerAcentos(falaOriginal);
-                
                 let debugUI = document.getElementById("debug-ia");
+
+                // ESTADO 1: APLICATIVO PRECISA SABER O ANDAR INICIAL
+                if (aguardandoAndar) {
+                    // Correção: usar \b (limite de palavra) em vez de "includes",
+                    // porque "includes('um')" dava match em "algum", "nenhum",
+                    // "lugar comum" etc, confundindo o andar detectado.
+                    if (/\b(primeiro|terreo|térreo|um|1)\b/.test(falaLimpa)) {
+                        andarConhecido = 0; // Mapeia "Primeiro andar" para o Z=0
+                    } else if (/\b(segundo|dois|2)\b/.test(falaLimpa)) {
+                        andarConhecido = 1; // Mapeia "Segundo andar" para o Z=1
+                    } else if (/\b(terceiro|tres|três|3)\b/.test(falaLimpa)) {
+                        andarConhecido = 2; // Mapeia "Terceiro andar" para o Z=2
+                    }
+
+                    if (andarConhecido !== null) {
+                        aguardandoAndar = false; // Passa para a próxima fase
+                        debugUI.innerHTML = `🗣️ Voz detectou: "${falaOriginal}"<br>✅ Andar Inicial travado: <b>Z=${andarConhecido}</b>`;
+                        
+                        // Emenda a fala do destino automaticamente!
+                        falar(`Andar confirmado. Diga seu destino após o bipe.`);
+                        setTimeout(() => { try { recognition.start(); } catch(e) {} }, 3500);
+                    } else {
+                        debugUI.innerHTML = `🗣️ Voz detectou: "${falaOriginal}"<br>❌ Andar não reconhecido.`;
+                        falar("Não entendi o andar. Diga primeiro, segundo, ou terceiro andar.", true);
+                    }
+                    return; // Para a execução aqui para não tentar procurar o andar como se fosse um destino
+                }
+
+                // ESTADO 2: APLICATIVO PRECISA SABER O DESTINO (O Andar já foi dito)
                 let destinoEncontrado = null;
                 const chavesLocais = Object.keys(locais);
                 
                 for (let local of chavesLocais) {
                     let localLimpo = removerAcentos(local.toLowerCase());
-                    
                     if (falaLimpa.includes(localLimpo) && !locais[local].silencioso) {
                         destinoEncontrado = local;
                         break;
@@ -164,28 +239,44 @@
 
                 if (destinoEncontrado) {
                     debugUI.innerHTML = `🗣️ Voz detectou: "${falaOriginal}"<br>✅ Destino definido: <b>${destinoEncontrado}</b>`;
-                    falar(`Destino configurado para ${destinoEncontrado}. Se desejar, tire uma foto para começar.`);
+                    falar(`Destino configurado para ${destinoEncontrado}. Se desejar, tire uma foto para começar a navegação.`, true);
                     setDestino(destinoEncontrado);
                 } else {
                     debugUI.innerHTML = `🗣️ Voz detectou: "${falaOriginal}"<br>❌ Local não encontrado no mapa.`;
-                    falar("Não encontrei esse local. Toque no botão amarelo e tente novamente.");
+                    falar("Não encontrei esse local. Toque no botão amarelo e tente novamente.", true);
                 }
             };
 
             recognition.onerror = (event) => {
-                falar("Não consegui ouvir. Tente novamente.");
+                // Correção: tratar "não tenho permissão de microfone" de forma
+                // diferente de um erro transitório de captação, já que pedir
+                // para "tentar de novo" não resolve permissão negada.
+                if (event.error === "not-allowed" || event.error === "service-not-allowed") {
+                    falar("O microfone está bloqueado. Habilite a permissão de microfone nas configurações do navegador e tente novamente.", true);
+                } else if (event.error === "no-speech") {
+                    falar("Não ouvi nada. Toque no botão amarelo e tente de novo.", true);
+                } else {
+                    falar("Não consegui ouvir. Tente novamente.", true);
+                }
             };
         }
 
         function ativarMicrofone() {
             if (!recognition) {
-                falar("Seu navegador não suporta reconhecimento de voz.");
+                falar("Seu navegador não suporta reconhecimento de voz.", true);
                 return;
             }
-            falar("Diga o seu destino após o bipe.");
+            
+            // Muda a instrução dependendo da fase (Estado)
+            if (aguardandoAndar) {
+                falar("Para começarmos, em qual andar você está? Diga primeiro, segundo ou terceiro andar.", true);
+            } else {
+                falar("Diga o seu destino após o bipe.", true);
+            }
+            
             setTimeout(() => {
                 try { recognition.start(); } catch(e) {}
-            }, 2500); 
+            }, 3500); 
         }
 
         function calcularDistancia(a, b) {
@@ -229,7 +320,6 @@
             alertaUI.style.display = "none";
 
             if (!destinoAtual) {
-                falar("Você está em " + posicaoAtual + ". Toque no botão amarelo para dizer onde deseja ir.");
                 return;
             }
 
@@ -242,22 +332,42 @@
             const caminho = algoritmoAStar(posicaoAtual, destinoAtual);
             if (caminho && caminho.length > 1) {
                 const proximo = caminho[1];
-                let instrucao = locais[proximo].silencioso ? "Siga pelo caminho atual" : "Siga para " + proximo;
-                
-                const zAtual = locais[posicaoAtual].z;
-                const zProximo = locais[proximo].z;
+                const noAtual = locais[posicaoAtual];
+                const noProximo = locais[proximo];
+                const zAtual = noAtual.z;
+                const zProximo = noProximo.z;
                 const zDestino = locais[destinoAtual].z;
 
-                if (proximo === "Rampa maior" && zDestino > 0) {
-                    instrucao = "Para chegar no segundo andar mais rápido, vá para a rampa maior e suba. Se não, continue reto até a rampa menor.";
-                } else if (posicaoAtual === "Rampa menor" && zProximo > zAtual) {
+                let instrucao = locais[proximo].silencioso ? "Siga pelo caminho atual" : "Siga para " + proximo;
+
+                const chaveManual = posicaoAtual + "|" + proximo;
+
+                if (instrucoesManuais[chaveManual]) {
+                    // Trecho com instrução específica cadastrada manualmente
+                    // (frente / trás / direita / esquerda). Tem prioridade
+                    // sobre a lógica genérica abaixo.
+                    instrucao = instrucoesManuais[chaveManual];
+                    if (zProximo !== zAtual) {
+                        alertaUI.style.display = "block";
+                        alertaUI.innerText = zProximo > zAtual
+                            ? `⚠️ Mudança de andar: subindo para o andar ${zProximo}`
+                            : `⚠️ Mudança de andar: descendo para o andar ${zProximo}`;
+                    }
+                } else if (noProximo.tipo === "rampa" && zProximo === zAtual && zDestino > zAtual) {
+                    // Correção: em vez de comparar nomes de locais específicos
+                    // ("Rampa maior"/"Rampa menor" hardcoded), usamos a
+                    // propriedade genérica tipo:"rampa" + corrimao dos nós.
+                    // Isso deixa a regra válida para qualquer rampa nova
+                    // adicionada ao mapa, sem precisar tocar nesta função de novo.
+                    instrucao = `Para chegar mais rápido, vá para ${proximo} e suba.`;
+                } else if (noAtual.tipo === "rampa" && zProximo > zAtual) {
                     alertaUI.style.display = "block";
-                    alertaUI.innerText = `⚠️ Suba a Rampa Menor para o andar ${zProximo}`;
-                    instrucao = `Você chegou na rampa menor. Agora suba, seguindo sempre o corrimão à esquerda.`;
+                    alertaUI.innerText = `⚠️ Suba a partir de ${posicaoAtual} para o andar ${zProximo}`;
+                    instrucao = `Você chegou em ${posicaoAtual}. Agora suba, seguindo sempre o corrimão à ${noAtual.corrimao || "esquerda"}.`;
                 } else if (zProximo > zAtual) {
                     alertaUI.style.display = "block";
-                    alertaUI.innerText = `⚠️ Suba para o andar ${zProximo} (Corrimão à Esquerda)`;
-                    instrucao = `Suba em direção a ${proximo}, seguindo sempre o corrimão à esquerda.`;
+                    alertaUI.innerText = `⚠️ Suba para o andar ${zProximo} (Corrimão à ${(noProximo.corrimao || "esquerda")})`;
+                    instrucao = `Suba em direção a ${proximo}, seguindo sempre o corrimão à ${noProximo.corrimao || "esquerda"}.`;
                 } else if (zProximo < zAtual) {
                     alertaUI.style.display = "block";
                     alertaUI.innerText = `⚠️ Desça para o andar ${zProximo} (Corrimão à Direita)`;
@@ -303,14 +413,32 @@
         async function init() {
             document.getElementById("btn-init").innerText = "BAIXANDO REDES NEURAIS...";
             
-            modelosCarregados[0] = await tmImage.load(MODELOS_URLS[0] + "model.json", MODELOS_URLS[0] + "metadata.json");
-            modelosCarregados[1] = await tmImage.load(MODELOS_URLS[1] + "model.json", MODELOS_URLS[1] + "metadata.json");
-            modelosCarregados[2] = await tmImage.load(MODELOS_URLS[2] + "model.json", MODELOS_URLS[2] + "metadata.json");
-            
-            document.getElementById("btn-init").style.display = "none";
-            document.getElementById("label-upload").style.display = "block"; 
-            
-            falar("Sistema pronto. Toque no botão inferior para dizer seu destino.");
+            try {
+                // Correção: carregar os 3 modelos em paralelo em vez de
+                // sequencialmente, reduzindo bastante o tempo de inicialização.
+                const [m0, m1, m2] = await Promise.all([
+                    tmImage.load(MODELOS_URLS[0] + "model.json", MODELOS_URLS[0] + "metadata.json"),
+                    tmImage.load(MODELOS_URLS[1] + "model.json", MODELOS_URLS[1] + "metadata.json"),
+                    tmImage.load(MODELOS_URLS[2] + "model.json", MODELOS_URLS[2] + "metadata.json")
+                ]);
+                modelosCarregados[0] = m0;
+                modelosCarregados[1] = m1;
+                modelosCarregados[2] = m2;
+
+                document.getElementById("btn-init").style.display = "none";
+                document.getElementById("label-upload").style.display = "block"; 
+
+                falar("Sistema pronto. Toque no botão inferior e me diga em qual andar você está.");
+            } catch (erro) {
+                // Correção: antes, se o carregamento falhasse (rede instável,
+                // CDN fora do ar, etc.), o botão ficava travado em "BAIXANDO
+                // REDES NEURAIS..." para sempre, sem nenhum aviso — muito ruim
+                // para quem depende só do áudio. Agora avisamos e permitimos
+                // tentar de novo.
+                console.error("Falha ao carregar modelos de IA:", erro);
+                document.getElementById("btn-init").innerText = "1. INICIAR SISTEMA (CARREGAR IA)";
+                falar("Não consegui carregar o sistema. Verifique sua conexão com a internet e toque no botão verde para tentar novamente.", true);
+            }
         }
 
         function processarImagem(event) {
@@ -321,7 +449,7 @@
             imgElement.src = URL.createObjectURL(file);
             imgElement.style.display = "block";
             
-            document.getElementById("debug-ia").innerText = `🧠 Analisando ambiente...`;
+            document.getElementById("debug-ia").innerText = `🧠 Analisando ambiente com IA restrita...`;
 
             imgElement.onload = async () => {
                 await predictUpload(imgElement);
@@ -332,11 +460,15 @@
             let classesPermitidas = obterClassesPermitidas(localIdentificado);
             let andaresParaTestar = new Set();
             
-            // LOCALIZAÇÃO GLOBAL: Se o sistema não sabe onde está, procura em TODOS os andares
+            // LÓGICA DE TRIAGEM POR VOZ ATIVADA
             if (!localIdentificado) {
-                andaresParaTestar = new Set([0, 1, 2]);
+                if (andarConhecido !== null) {
+                    // O app confia na voz e carrega APENAS a IA daquele andar (3x mais rápido e preciso)
+                    andaresParaTestar = new Set([andarConhecido]);
+                } else {
+                    andaresParaTestar = new Set([0, 1, 2]); // Fallback se a pessoa não falou nada
+                }
             } else {
-                // Se já sabe, procura apenas nos vizinhos físicos permitidos
                 andaresParaTestar.add(locais[localIdentificado].z);
                 if (classesPermitidas) {
                     classesPermitidas.forEach(c => {
@@ -365,7 +497,6 @@
                     }
                     
                     let bloqueado = false;
-                    // Só aplica o filtro de vizinhos se já soubermos de onde estamos partindo
                     if (localIdentificado !== null && classesPermitidas !== null) {
                         if (!classesPermitidas.includes(nomeClasse)) bloqueado = true;
                     }
@@ -376,8 +507,7 @@
                         textoFiltro += `${nomeClasse} (Z=${andar}): ${(prob * 100).toFixed(0)}% | `;
                     }
 
-                    // Se estivermos perdidos, exigimos uma precisão maior (40%) para o primeiro palpite
-                    let limiteAceitacao = localIdentificado ? 0.20 : 0.40;
+                    let limiteAceitacao = localIdentificado ? 0.20 : 0.35;
                     
                     if(prob > limiteAceitacao && prob > max) {
                         max = prob; 
@@ -400,7 +530,7 @@
                 }
             } else {
                 document.getElementById("local-atual").innerHTML = `<span style="color: #ffaa00;">⚠️ Não reconheci o local. Tire uma foto mais nítida do corredor.</span>`;
-                if (!localIdentificado) falar("Ainda não sei onde estamos. Por favor, tire outra foto do ambiente.");
+                if (!localIdentificado) falar("Ainda não sei em qual corredor estamos. Por favor, tire outra foto.");
             }
         }
     </script>
