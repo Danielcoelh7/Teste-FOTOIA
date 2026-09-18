@@ -94,7 +94,7 @@
             "cantina": { x: 400, y: 800, z: 0, vizinhos: ["caminho cantina"], silencioso: false },
             "Escada0": { x: 450, y: 650, z: 0, vizinhos: ["patio central", "caminho centro", "Central"], silencioso: false },
             
-            "patio central": { x: 500, y: 600, z: 0, vizinhos: ["Escada0", "Central", "rampa0", "patio"], silencioso: false },
+            "patio central": { x: 500, y: 600, z: 0, vizinhos: ["Escada0", "Central", "patio"], silencioso: false },
             
             "rampa0": { x: 600, y: 600, z: 0, vizinhos: ["patio central", "caminho centro", "Central", "rampa2"], silencioso: false, tipo: "rampa", corrimao: "esquerda" },
             "rampa2": { x: 600, y: 600, z: 1, vizinhos: ["rampa0", "Centro", "rampa3", "corredor central"], silencioso: false, tipo: "rampa", corrimao: "esquerda" },
@@ -107,21 +107,31 @@
             "corredor direita": { x: 900, y: 500, z: 1, vizinhos: ["Centro"], silencioso: false }
         };
 
-        // Instruções manuais por trecho (origem -> destino), no formato
-        // "ORIGEM|DESTINO": "texto falado/exibido". Quando o próximo passo do
-        // A* corresponder a um desses pares, essa frase é usada no lugar da
-        // instrução genérica "Siga para X" / lógica de subir-descer por z.
+        // Instruções manuais por trecho de 2 pontos (origem -> destino), no
+        // formato "ORIGEM|DESTINO": "texto falado/exibido". Usadas quando o
+        // próximo passo do A* corresponder a um desses pares e não houver uma
+        // instrução de contexto (3 pontos) mais específica (ver abaixo).
         const instrucoesManuais = {
             "Portaria|Caminho entrada": "Siga em frente.",
             "Caminho entrada|Rampa maior": "Siga em frente.",
+            "Caminho entrada|Portaria": "Siga em frente.",
             "Rampa maior|Saida do refeitório": "Vire à esquerda.",
             "Rampa maior|Rampa menor": "Siga em frente.",
             "Rampa maior|Centro": "Vire à direita e suba a rampa.",
+            "Rampa maior|Caminho entrada": "Desça a rampa para ir embora, pela esquerda.",
+            "Saida do refeitório|Rampa maior": "A rampa estará à direita.",
             "Rampa menor|patio": "Suba a rampa menor, seguindo sempre o corrimão à esquerda.",
             "patio|patio central": "Siga em frente até o centro.",
             "patio central|Central": "Siga em frente.",
             "patio central|Escada0": "Siga em frente até a escada, à esquerda.",
             "Central|corredor biblioteca": "Vire à direita até a biblioteca.",
+            "corredor biblioteca|biblioteca": "Siga em frente.",
+            "biblioteca|corredor biblioteca": "Ao sair da biblioteca, vire à esquerda.",
+            "caminho centro|Central": "Siga em frente.",
+            "Central|caminho cantina": "Siga em frente.",
+            "caminho cantina|cantina": "Vire à direita e procure o piso tátil para ir à cantina.",
+            "cantina|caminho cantina": "Procure o piso tátil para voltar.",
+            "caminho centro|rampa0": "Siga um pouco à frente e procure a rampa ao lado direito.",
             "Central|rampa0": "Vire à direita e depois à esquerda, até encontrar o piso tátil.",
             "rampa0|rampa2": "Suba.",
             "rampa0|Central": "Desça.",
@@ -132,6 +142,23 @@
             "Centro|corredor central": "Siga o piso tátil à direita até a interligação com o piso tátil do centro.",
             "Centro|corredor direita": "Siga apenas o piso tátil, à direita."
         };
+
+        // Instruções com CONTEXTO (anterior -> atual -> próximo), no formato
+        // "ANTERIOR|ATUAL|PROXIMO". Têm prioridade sobre "instrucoesManuais"
+        // acima, porque o mesmo trecho ATUAL->PROXIMO pode precisar de uma
+        // instrução diferente dependendo de onde a pessoa veio.
+        // Ex.: chegar em "Central" vindo de "rampa0" e seguir para
+        // "caminho cantina" precisa de uma instrução diferente de chegar em
+        // "Central" vindo de "patio central" e seguir para "caminho cantina".
+        const instrucoesComContexto = {
+            "rampa0|Central|caminho cantina": "Vire à direita para procurar o piso tátil."
+        };
+
+        // Guarda a sequência de locais confirmados por foto, na ordem em que
+        // foram identificados, para permitir instruções sensíveis ao trajeto
+        // (instrucoesComContexto). Não é limpo ao trocar de destino, só ao
+        // reiniciar a página, pois representa o caminho físico já percorrido.
+        let historicoLocais = [];
 
         let destinoAtual = null, localIdentificado = null, ultimaFala = "";
         
@@ -340,9 +367,25 @@
 
                 let instrucao = locais[proximo].silencioso ? "Siga pelo caminho atual" : "Siga para " + proximo;
 
+                // O local imediatamente anterior a "posicaoAtual" no trajeto já
+                // percorrido, usado para escolher a instrução de contexto certa
+                // quando o mesmo trecho ATUAL->PROXIMO tem textos diferentes
+                // conforme a origem (ex.: chegar em Central vindo de rampa0 x
+                // vindo de patio central).
+                const anterior = historicoLocais.length > 0 ? historicoLocais[historicoLocais.length - 1] : null;
+                const chaveTripla = anterior ? (anterior + "|" + posicaoAtual + "|" + proximo) : null;
                 const chaveManual = posicaoAtual + "|" + proximo;
 
-                if (instrucoesManuais[chaveManual]) {
+                if (chaveTripla && instrucoesComContexto[chaveTripla]) {
+                    // Instrução específica que depende de onde a pessoa veio.
+                    instrucao = instrucoesComContexto[chaveTripla];
+                    if (zProximo !== zAtual) {
+                        alertaUI.style.display = "block";
+                        alertaUI.innerText = zProximo > zAtual
+                            ? `⚠️ Mudança de andar: subindo para o andar ${zProximo}`
+                            : `⚠️ Mudança de andar: descendo para o andar ${zProximo}`;
+                    }
+                } else if (instrucoesManuais[chaveManual]) {
                     // Trecho com instrução específica cadastrada manualmente
                     // (frente / trás / direita / esquerda). Tem prioridade
                     // sobre a lógica genérica abaixo.
@@ -522,6 +565,16 @@
 
             if(melhor !== "") {
                 if(locais[melhor]) {
+                    // Guarda o local confirmado anterior no histórico ANTES de
+                    // sobrescrevê-lo, para as instruções de contexto (3 pontos)
+                    // saberem de onde a pessoa está vindo. Só registra quando o
+                    // local muda de fato, para não poluir o histórico com fotos
+                    // repetidas do mesmo lugar.
+                    if (localIdentificado !== null && melhor !== localIdentificado) {
+                        historicoLocais.push(localIdentificado);
+                        if (historicoLocais.length > 15) historicoLocais.shift();
+                    }
+
                     localIdentificado = melhor;
                     document.getElementById("local-atual").innerHTML = `<span style="color: #00ff88;">🖼️ Local Confirmado: ${melhor} (Andar ${locais[melhor].z})</span>`;
                     atualizarNavegacao(melhor);
