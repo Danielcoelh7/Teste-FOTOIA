@@ -10,6 +10,7 @@
         button { padding: 12px; border-radius: 8px; border: none; cursor: pointer; font-weight: bold; font-size: 0.8rem; transition: 0.2s; }
         .btn-start { background: #00ff88; color: #000; width: 100%; max-width: 450px; margin-bottom: 10px; font-size: 1.1rem; }
         .btn-upload { background: #0088ff; color: #fff; width: 100%; max-width: 450px; margin-bottom: 20px; font-size: 1.1rem; text-align: center; display: inline-block; box-sizing: border-box; padding: 15px; border-radius: 10px;}
+        .btn-upload:disabled { opacity: 0.6; cursor: default; }
         
         /* Estilo do Botão Gigante de Acessibilidade */
         #btn-ouvir { width: 100%; height: 120px; background: #ffaa00; color: #000; font-size: 1.3rem; border-radius: 15px; border: none; margin-top: 10px; font-weight: bold; box-shadow: 0 8px 15px rgba(255, 170, 0, 0.3); text-transform: uppercase; }
@@ -22,8 +23,7 @@
         .alerta-andar { display: none; margin-top: 10px; padding: 10px; background: rgba(255, 170, 0, 0.2); border: 2px solid #ffaa00; border-radius: 8px; color: #ffaa00; font-weight: bold; text-transform: uppercase; font-size: 0.9rem; animation: piscar 1.5s infinite; }
         @keyframes piscar { 50% { opacity: 0.6; } }
 
-        #preview-imagem { width: 200px; height: 200px; object-fit: cover; border: 3px solid #0088ff; border-radius: 20px; display: none; margin-bottom: 20px; background: #111; }
-        input[type="file"] { display: none; }
+        #video-preview { width: 100%; max-width: 450px; border: 3px solid #0088ff; border-radius: 20px; display: none; margin-bottom: 20px; background: #111; }
         
         #debug-ia { font-size: 0.75rem; background: #222; padding: 10px; border-radius: 8px; margin-top: 15px; text-align: left; word-wrap: break-word; line-height: 1.4; border: 1px dashed #555;}
 
@@ -36,12 +36,11 @@
     
     <button class="btn-start" id="btn-init" onclick="init()">1. INICIAR SISTEMA (CARREGAR IA)</button>
     
-    <label for="image-upload" class="btn-upload" id="label-upload" style="display: none; cursor: pointer;">
-        📸 TIRAR FOTO PARA SE LOCALIZAR
-    </label>
-    <input type="file" id="image-upload" accept="image/*" capture="environment" onchange="processarImagem(event)">
+    <button class="btn-upload" id="btn-camera" style="display: none;" onclick="iniciarCamera()">
+        📹 INICIAR CÂMERA (LOCALIZAÇÃO CONTÍNUA)
+    </button>
 
-    <img id="preview-imagem" alt="Pré-visualização da imagem">
+    <video id="video-preview" autoplay playsinline muted></video>
 
     <div id="status-box">
         <div id="instrucao">Aguardando...</div>
@@ -73,14 +72,20 @@
         };
         let modelosCarregados = {};
 
+        // Intervalo (ms) entre análises de frame do vídeo. 1500ms equilibra
+        // responsividade com o custo de rodar até 3 modelos de IA no navegador
+        // a cada análise.
+        const INTERVALO_ANALISE_MS = 1500;
+
         const locais = {
             "Portaria": { x: 439, y: 18, z: 0, vizinhos: ["Caminho entrada"], silencioso: false },
-            "Caminho entrada": { x: 434, y: 107, z: 0, vizinhos: ["Portaria", "Rampa maior"], silencioso: false },
-            "Refeitorio fora": { x: 373, y: 191, z: 0, vizinhos: ["Refeitorio"], silencioso: false },
+            "Caminho entrada": { x: 434, y: 107, z: 0, vizinhos: ["Portaria", "Rampa maior", "Entrada Refeitório"], silencioso: false },
+            "Entrada Refeitório": { x: 380, y: 150, z: 0, vizinhos: ["Rampa maior", "Caminho entrada", "Refeitorio fora"], silencioso: false },
+            "Refeitorio fora": { x: 373, y: 191, z: 0, vizinhos: ["Refeitorio", "Entrada Refeitório"], silencioso: false },
             "Refeitorio": { x: 328, y: 258, z: 0, vizinhos: ["Refeitorio fora", "Saida do refeitório"], silencioso: false },
             "Saida do refeitório": { x: 107, y: 418, z: 0, vizinhos: ["Refeitorio", "Rampa maior"], silencioso: true },
 
-            "Rampa maior": { x: 443, y: 369, z: 0, vizinhos: ["Caminho entrada", "Saida do refeitório", "Rampa menor", "Centro"], silencioso: false, tipo: "rampa", corrimao: "esquerda" }, 
+            "Rampa maior": { x: 443, y: 369, z: 0, vizinhos: ["Caminho entrada", "Saida do refeitório", "Rampa menor", "Centro", "Entrada Refeitório"], silencioso: false, tipo: "rampa", corrimao: "esquerda" }, 
             "Rampa menor": { x: 413, y: 427, z: 0, vizinhos: ["Rampa maior", "patio"], silencioso: false, tipo: "rampa", corrimao: "esquerda" },
             "patio": { x: 534, y: 512, z: 0, vizinhos: ["Rampa menor", "patio central"], silencioso: false }, 
 
@@ -111,36 +116,96 @@
         // formato "ORIGEM|DESTINO": "texto falado/exibido". Usadas quando o
         // próximo passo do A* corresponder a um desses pares e não houver uma
         // instrução de contexto (3 pontos) mais específica (ver abaixo).
+        //
+        // IMPORTANTE: todo trecho com instrução manual também tem seu par de
+        // volta (DESTINO -> ORIGEM) definido aqui. A volta NÃO é sempre o
+        // espelho mecânico da ida (ex.: "vire à direita" virar "vire à
+        // esquerda") — em alguns pontos o jeito certo de voltar é bem
+        // diferente do de ir (ex.: "caminho cantina -> Central" volta pelo
+        // piso tátil, mesmo a ida sendo só "siga em frente"). Cada volta foi
+        // escrita pensando na direção física correta para quem está vindo do
+        // sentido oposto.
         const instrucoesManuais = {
             "Portaria|Caminho entrada": "Siga em frente.",
-            "Caminho entrada|Rampa maior": "Siga em frente.",
             "Caminho entrada|Portaria": "Siga em frente.",
-            "Rampa maior|Saida do refeitório": "Vire à esquerda.",
-            "Rampa maior|Rampa menor": "Siga em frente.",
-            "Rampa maior|Centro": "Vire à direita e suba a rampa.",
+
+            "Caminho entrada|Rampa maior": "Siga em frente.",
             "Rampa maior|Caminho entrada": "Desça a rampa para ir embora, pela esquerda.",
+
+            // Entrada Refeitório: a instrução muda dependendo de por onde a
+            // pessoa chega, por isso são pares manuais diferentes em vez de
+            // uma regra genérica.
+            "Rampa maior|Entrada Refeitório": "Siga em frente e acompanhe o meio-fio à esquerda até a subida.",
+            "Entrada Refeitório|Rampa maior": "Siga em frente até a rampa.",
+            "Caminho entrada|Entrada Refeitório": "Ao acabar o meio-fio, vire à esquerda e siga reto até a porta do refeitório, que estará à esquerda.",
+            "Entrada Refeitório|Caminho entrada": "Siga em frente.",
+            "Entrada Refeitório|Refeitorio fora": "Siga em frente até a entrada do refeitório.",
+            "Refeitorio fora|Entrada Refeitório": "Saia e siga em frente.",
+
+            "Rampa maior|Saida do refeitório": "Vire à esquerda.",
             "Saida do refeitório|Rampa maior": "A rampa estará à direita.",
+
+            "Rampa maior|Rampa menor": "Siga em frente.",
+            "Rampa menor|Rampa maior": "Siga em frente.",
+
+            "Rampa maior|Centro": "Vire à direita e suba a rampa.",
+            "Centro|Rampa maior": "Vire à esquerda e desça a rampa.",
+
             "Rampa menor|patio": "Suba a rampa menor, seguindo sempre o corrimão à esquerda.",
+            "patio|Rampa menor": "Desça a rampa menor, seguindo sempre o corrimão à direita.",
+
             "patio|patio central": "Siga em frente até o centro.",
+            "patio central|patio": "Siga em frente.",
+
             "patio central|Central": "Siga em frente.",
+            "Central|patio central": "Siga em frente.",
+
             "patio central|Escada0": "Siga em frente até a escada, à esquerda.",
+            "Escada0|patio central": "Siga em frente.",
+
             "Central|corredor biblioteca": "Vire à direita até a biblioteca.",
+            "corredor biblioteca|Central": "Vire à esquerda.",
+
             "corredor biblioteca|biblioteca": "Siga em frente.",
             "biblioteca|corredor biblioteca": "Ao sair da biblioteca, vire à esquerda.",
+
             "caminho centro|Central": "Siga em frente.",
+            "Central|caminho centro": "Siga em frente.",
+
             "Central|caminho cantina": "Siga em frente.",
+            // Caso especial apontado: a volta não espelha a ida (que é reta);
+            // volta-se seguindo o piso tátil.
+            "caminho cantina|Central": "Volte pelo piso tátil.",
+
             "caminho cantina|cantina": "Vire à direita e procure o piso tátil para ir à cantina.",
             "cantina|caminho cantina": "Procure o piso tátil para voltar.",
+
             "caminho centro|rampa0": "Siga um pouco à frente e procure a rampa ao lado direito.",
+            "rampa0|caminho centro": "Vire à esquerda e siga em frente.",
+
             "Central|rampa0": "Vire à direita e depois à esquerda, até encontrar o piso tátil.",
-            "rampa0|rampa2": "Suba.",
             "rampa0|Central": "Desça.",
+
+            "rampa0|rampa2": "Suba.",
+            "rampa2|rampa0": "Desça.",
+
             "rampa2|rampa3": "Está ao lado. Continue subindo a rampa, seguindo sempre o corrimão à esquerda.",
+            "rampa3|rampa2": "Está ao lado. Continue descendo a rampa, seguindo sempre o corrimão à direita.",
+
             "rampa3|rampa4": "Suba.",
+            "rampa4|rampa3": "Desça.",
+
             "rampa2|Centro": "Siga em frente até o piso tátil, vire à esquerda e vire novamente à esquerda depois de andar um pouco.",
+            "Centro|rampa2": "Vire à direita, siga um pouco e vire à direita novamente até o piso tátil.",
+
             "Centro|corredor esquerda": "Ao subir a rampa maior, vire à esquerda e ande até o piso tátil, depois vire à esquerda.",
+            "corredor esquerda|Centro": "Vire à direita, siga até o piso tátil e vire à direita novamente.",
+
             "Centro|corredor central": "Siga o piso tátil à direita até a interligação com o piso tátil do centro.",
-            "Centro|corredor direita": "Siga apenas o piso tátil, à direita."
+            "corredor central|Centro": "Siga o piso tátil à esquerda.",
+
+            "Centro|corredor direita": "Siga apenas o piso tátil, à direita.",
+            "corredor direita|Centro": "Siga apenas o piso tátil, à esquerda."
         };
 
         // Instruções com CONTEXTO (anterior -> atual -> próximo), no formato
@@ -154,10 +219,11 @@
             "rampa0|Central|caminho cantina": "Vire à direita para procurar o piso tátil."
         };
 
-        // Guarda a sequência de locais confirmados por foto, na ordem em que
-        // foram identificados, para permitir instruções sensíveis ao trajeto
-        // (instrucoesComContexto). Não é limpo ao trocar de destino, só ao
-        // reiniciar a página, pois representa o caminho físico já percorrido.
+        // Guarda a sequência de locais confirmados por foto/vídeo, na ordem em
+        // que foram identificados, para permitir instruções sensíveis ao
+        // trajeto (instrucoesComContexto). Não é limpo ao trocar de destino,
+        // só ao reiniciar a página, pois representa o caminho físico já
+        // percorrido.
         let historicoLocais = [];
 
         let destinoAtual = null, localIdentificado = null, ultimaFala = "";
@@ -185,7 +251,8 @@
 
         function falar(texto, forcar) {
             // "forcar" permite repetir uma instrução idêntica à anterior
-            // (ex.: usuário pediu para repetir, ou tirou nova foto e caiu no mesmo lugar).
+            // (ex.: usuário pediu para repetir, ou a IA confirmou de novo o
+            // mesmo lugar em um frame seguinte).
             if (texto === ultimaFala && !forcar) return; 
             ultimaFala = texto;
             synth.cancel(); 
@@ -266,7 +333,7 @@
 
                 if (destinoEncontrado) {
                     debugUI.innerHTML = `🗣️ Voz detectou: "${falaOriginal}"<br>✅ Destino definido: <b>${destinoEncontrado}</b>`;
-                    falar(`Destino configurado para ${destinoEncontrado}. Se desejar, tire uma foto para começar a navegação.`, true);
+                    falar(`Destino configurado para ${destinoEncontrado}. Se desejar, ligue a câmera para começar a navegação.`, true);
                     setDestino(destinoEncontrado);
                 } else {
                     debugUI.innerHTML = `🗣️ Voz detectou: "${falaOriginal}"<br>❌ Local não encontrado no mapa.`;
@@ -469,9 +536,9 @@
                 modelosCarregados[2] = m2;
 
                 document.getElementById("btn-init").style.display = "none";
-                document.getElementById("label-upload").style.display = "block"; 
+                document.getElementById("btn-camera").style.display = "block"; 
 
-                falar("Sistema pronto. Toque no botão inferior e me diga em qual andar você está.");
+                falar("Sistema pronto. Toque no botão inferior para ligar a câmera e me diga em qual andar você está.");
             } catch (erro) {
                 // Correção: antes, se o carregamento falhasse (rede instável,
                 // CDN fora do ar, etc.), o botão ficava travado em "BAIXANDO
@@ -484,22 +551,64 @@
             }
         }
 
-        function processarImagem(event) {
-            const file = event.target.files[0];
-            if (!file) return;
+        let streamAtivo = null;
+        let intervaloAnalise = null;
+        let analisandoFrame = false;
 
-            const imgElement = document.getElementById("preview-imagem");
-            imgElement.src = URL.createObjectURL(file);
-            imgElement.style.display = "block";
-            
-            document.getElementById("debug-ia").innerText = `🧠 Analisando ambiente com IA restrita...`;
+        // Substitui o antigo fluxo de "tirar 1 foto -> analisar" por uma
+        // câmera sempre ligada: pede a câmera traseira uma vez e, a partir
+        // daí, analisa frames do próprio <video> periodicamente, sem precisar
+        // de nenhuma outra ação do usuário.
+        async function iniciarCamera() {
+            const btnCamera = document.getElementById("btn-camera");
+            const video = document.getElementById("video-preview");
 
-            imgElement.onload = async () => {
-                await predictUpload(imgElement);
-            };
+            try {
+                const stream = await navigator.mediaDevices.getUserMedia({
+                    video: { facingMode: "environment" },
+                    audio: false
+                });
+                streamAtivo = stream;
+                video.srcObject = stream;
+                video.style.display = "block";
+
+                btnCamera.innerText = "📹 CÂMERA ATIVA — ANALISANDO...";
+                btnCamera.disabled = true;
+
+                falar("Câmera ativada. Vou analisar o ambiente continuamente.");
+
+                if (intervaloAnalise) clearInterval(intervaloAnalise);
+                intervaloAnalise = setInterval(() => {
+                    analisarFrameAtual(video);
+                }, INTERVALO_ANALISE_MS);
+            } catch (erro) {
+                // Correção: sem esse aviso, uma permissão negada ou câmera
+                // ocupada deixava a pessoa sem qualquer feedback sonoro sobre
+                // o que deu errado.
+                console.error("Falha ao acessar a câmera:", erro);
+                falar("Não consegui acessar a câmera. Verifique a permissão de câmera nas configurações do navegador e toque no botão azul novamente.", true);
+            }
         }
 
-        async function predictUpload(imageElement) {
+        async function analisarFrameAtual(video) {
+            // Evita empilhar análises se uma anterior ainda estiver rodando
+            // (os 3 modelos de IA podem demorar mais que o intervalo em
+            // celulares mais fracos).
+            if (analisandoFrame) return;
+            // readyState < 2 significa que o vídeo ainda não tem um frame
+            // pronto para ser lido (ex.: câmera ainda carregando).
+            if (video.readyState < 2) return;
+
+            analisandoFrame = true;
+            document.getElementById("debug-ia").innerText = `🧠 Analisando ambiente com IA restrita...`;
+            try {
+                await predictFrame(video);
+            } finally {
+                analisandoFrame = false;
+            }
+        }
+
+        async function predictFrame(imageElement) {
             let classesPermitidas = obterClassesPermitidas(localIdentificado);
             let andaresParaTestar = new Set();
             
@@ -568,8 +677,8 @@
                     // Guarda o local confirmado anterior no histórico ANTES de
                     // sobrescrevê-lo, para as instruções de contexto (3 pontos)
                     // saberem de onde a pessoa está vindo. Só registra quando o
-                    // local muda de fato, para não poluir o histórico com fotos
-                    // repetidas do mesmo lugar.
+                    // local muda de fato, para não poluir o histórico com
+                    // frames repetidos do mesmo lugar.
                     if (localIdentificado !== null && melhor !== localIdentificado) {
                         historicoLocais.push(localIdentificado);
                         if (historicoLocais.length > 15) historicoLocais.shift();
@@ -581,9 +690,8 @@
                 } else {
                     document.getElementById("local-atual").innerHTML = `<span style="color: red;">❌ Erro crítico: A IA retornou '${melhor}', mas ele não existe.</span>`;
                 }
-            } else {
-                document.getElementById("local-atual").innerHTML = `<span style="color: #ffaa00;">⚠️ Não reconheci o local. Tire uma foto mais nítida do corredor.</span>`;
-                if (!localIdentificado) falar("Ainda não sei em qual corredor estamos. Por favor, tire outra foto.");
+            } else if (!localIdentificado) {
+                document.getElementById("local-atual").innerHTML = `<span style="color: #ffaa00;">⚠️ Ainda não reconheci o local. Aponte a câmera para o corredor.</span>`;
             }
         }
     </script>
