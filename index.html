@@ -9,6 +9,8 @@
         body { margin: 0; font-family: sans-serif; background: #000; color: white; display: flex; flex-direction: column; align-items: center; padding: 20px; text-align: center; box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
         button { padding: 12px; border-radius: 8px; border: none; cursor: pointer; font-weight: bold; font-size: 0.8rem; }
         .btn-start { background: #00ff88; color: #000; width: 100%; max-width: 450px; min-height: 140px; margin-bottom: 10px; font-size: 1.3rem; }
+        #btn-foto { width: 100%; height: 110px; background: #8844ff; color: #fff; font-size: 1.3rem; border-radius: 15px; margin-top: 10px; text-transform: uppercase; }
+        #btn-foto:active { transform: scale(0.98); }
         #btn-ouvir { width: 100%; height: 120px; background: #ffaa00; color: #000; font-size: 1.3rem; border-radius: 15px; margin-top: 10px; box-shadow: 0 8px 15px rgba(255,170,0,0.3); text-transform: uppercase; }
         #btn-ouvir:active { background: #e69900; transform: scale(0.98); }
         #btn-onde { background: #0088ff; color: #fff; width: 100%; height: 80px; font-size: 1.1rem; margin-top: 10px; border-radius: 15px; }
@@ -18,7 +20,7 @@
         #instrucao { color: #ccc; font-size: 0.9rem; }
         .alerta-andar { display: none; margin-top: 10px; padding: 10px; background: rgba(255,170,0,0.2); border: 2px solid #ffaa00; border-radius: 8px; color: #ffaa00; font-weight: bold; text-transform: uppercase; font-size: 0.9rem; animation: piscar 1.5s infinite; }
         @keyframes piscar { 50% { opacity: 0.6; } }
-        #video-preview { width: 100%; max-width: 450px; border: 3px solid #0088ff; border-radius: 20px; display: none; margin-bottom: 20px; background: #111; }
+        #foto-preview { width: 100%; max-width: 450px; border: 3px solid #8844ff; border-radius: 20px; display: none; margin-bottom: 20px; background: #111; }
         #debug-ia { font-size: 0.75rem; background: #222; padding: 10px; border-radius: 8px; margin-top: 15px; text-align: left; word-wrap: break-word; line-height: 1.4; border: 1px dashed #555; }
     </style>
 </head>
@@ -26,10 +28,10 @@
 
     <h1>Navegação Acessível</h1>
 
-    <!-- Sem onclick: o toque em QUALQUER lugar da tela inicia tudo (ver listener no fim do script) -->
     <button class="btn-start" id="btn-init" aria-label="Toque em qualquer lugar da tela para iniciar o sistema">TOQUE EM QUALQUER LUGAR DA TELA PARA COMEÇAR</button>
 
-    <video id="video-preview" autoplay playsinline webkit-playsinline muted></video>
+    <img id="foto-preview" alt="Última foto analisada">
+    <input type="file" id="input-foto" accept="image/*" multiple style="display:none;">
 
     <div id="status-box" aria-live="polite">
         <div id="instrucao">Aguardando...</div>
@@ -40,6 +42,7 @@
     </div>
 
     <div style="width: 100%; max-width: 450px;">
+        <button id="btn-foto" onclick="escolherFoto()">📷 Enviar foto</button>
         <button id="btn-ouvir" onclick="ativarMicrofone()">🎤 Toque para falar</button>
         <button id="btn-onde" onclick="dizerOndeEstou()">📍 Onde eu estou?</button>
         <button id="btn-repetir" onclick="repetirUltimaInstrucao()">🔁 Repetir última instrução</button>
@@ -56,11 +59,9 @@
         };
         let modelosCarregados = {};
 
-        // Intervalo entre análises. 1000ms com confirmação de 3 frames = ~3s para aceitar uma troca de local.
-        const INTERVALO_ANALISE_MS = 1000;
-        // Quantos frames seguidos precisam concordar antes de aceitar um local novo.
-        const FRAMES_PARA_TROCAR = 3;     // já tendo um local confirmado
-        const FRAMES_PRIMEIRO_LOCAL = 2;  // primeira identificação
+        // Com foto enviada por arquivo, cada foto já confirma o local (1 foto = 1 análise).
+        const FRAMES_PARA_TROCAR = 1;
+        const FRAMES_PRIMEIRO_LOCAL = 1;
 
         const locais = {
             "Portaria": { x: 439, y: 18, z: 0, vizinhos: ["Caminho entrada"], silencioso: false },
@@ -118,22 +119,22 @@
             "Rampa maior|Rampa menor": "Siga em frente.",
             "Rampa menor|Rampa maior": "Siga em frente.",
 
-            "Rampa maior|Centro": "Vire à direita e suba a rampa.",
+            "Rampa maior|Centro": "Vire à direita e suba a rampa. Depois, dê 4 passos até o piso tátil.",
             "Centro|Rampa maior": "Vire à esquerda e desça a rampa.",
 
-            "Rampa menor|patio": "Suba a rampa menor, seguindo sempre o corrimão à esquerda.",
+            "Rampa menor|patio": "Suba a rampa menor, seguindo sempre o corrimão à esquerda. Depois, siga reto com o auxílio da parede à esquerda.",
             "patio|Rampa menor": "Desça a rampa menor, seguindo sempre o corrimão à direita.",
 
-            "patio|patio central": "Siga em frente até o centro.",
+            "patio|patio central": "Siga reto aproximadamente 20 passos. Depois vire à esquerda e dê mais 20 passos. Em seguida, vire à direita e siga até o centro, em 15 passos.",
             "patio central|patio": "Siga em frente.",
 
-            "patio central|Central": "Siga em frente.",
+            "patio central|Central": "Dê 5 passos à frente. Depois vire à direita e dê mais 15 passos.",
             "Central|patio central": "Siga em frente.",
 
             "patio central|Escada0": "Siga em frente até a escada, à esquerda.",
             "Escada0|patio central": "Siga em frente.",
 
-            "Central|corredor biblioteca": "Vire à direita até a biblioteca.",
+            "Central|corredor biblioteca": "Continue em frente, dando mais 40 passos até a biblioteca.",
             "corredor biblioteca|Central": "Vire à esquerda.",
 
             "corredor biblioteca|biblioteca": "Siga em frente.",
@@ -142,7 +143,7 @@
             "caminho centro|Central": "Siga em frente.",
             "Central|caminho centro": "Siga em frente.",
 
-            "Central|caminho cantina": "Siga em frente.",
+            "Central|caminho cantina": "Vire à esquerda e, em 8 passos, você encontrará o piso tátil. Depois, siga em frente.",
             "caminho cantina|Central": "Volte pelo piso tátil.",
 
             "caminho cantina|cantina": "Vire à direita e procure o piso tátil para ir à cantina.",
@@ -151,10 +152,10 @@
             "caminho centro|rampa0": "Siga um pouco à frente e procure a rampa ao lado direito.",
             "rampa0|caminho centro": "Vire à esquerda e siga em frente.",
 
-            "Central|rampa0": "Vire à direita e depois à esquerda, até encontrar o piso tátil.",
+            "Central|rampa0": "Vire à esquerda e dê 8 passos até o piso tátil. Depois, vire à direita e você encontrará a rampa.",
             "rampa0|Central": "Desça.",
 
-            "rampa0|rampa2": "Suba.",
+            "rampa0|rampa2": "Suba. Após subir, em 8 passos você encontrará o piso tátil.",
             "rampa2|rampa0": "Desça.",
 
             "rampa2|rampa3": "Está ao lado. Continue subindo a rampa, seguindo sempre o corrimão à esquerda.",
@@ -194,8 +195,6 @@
         let candidatoLocal = null, contagemCandidato = 0;
 
         // ---------- FEEDBACK: VIBRAÇÃO + BIPE ----------
-        // navigator.vibrate NÃO existe no Safari/iPhone. Nele usamos bipes
-        // (WebAudio) como reforço equivalente.
         let audioCtx = null;
         function bipe(freq, ms) {
             if (!audioCtx) return;
@@ -207,17 +206,17 @@
             } catch (e) {}
         }
         const PADROES = {
-            esquerda: [120],                      // 1 pulso
-            direita:  [120, 80, 120],             // 2 pulsos
+            esquerda: [120],
+            direita:  [120, 80, 120],
             reto:     [60],
-            andar:    [250, 100, 250, 100, 250],  // 3 pulsos longos
+            andar:    [250, 100, 250, 100, 250],
             chegou:   [400, 120, 400],
             escuta:   [50]
         };
         function vibrar(tipo) {
             const p = PADROES[tipo] || PADROES.reto;
             if (navigator.vibrate) { navigator.vibrate(p); return; }
-            // Fallback iOS: bipes com a mesma cadência (posições pares = som)
+            // Fallback iOS (sem vibração): bipes com a mesma cadência
             let t = 0;
             p.forEach((d, i) => {
                 if (i % 2 === 0) setTimeout(() => bipe(tipo === "andar" ? 520 : 800, d), t);
@@ -242,10 +241,8 @@
             ultimaFala = texto;
             const id = ++falaId;
             falando = true;
-            // Não deixa o microfone ouvir a própria voz do app
             if (escutando && recognition) { try { recognition.abort(); } catch (e) {} }
             synth.cancel();
-            // Safari costuma engolir um speak() feito logo após cancel(); o pequeno atraso evita isso.
             setTimeout(() => {
                 if (id !== falaId) return;
                 const u = new SpeechSynthesisUtterance(texto);
@@ -253,9 +250,9 @@
                 if (vozPreferida) u.voice = vozPreferida;
                 u.rate = 1.05;
                 const fim = () => {
-                    if (id !== falaId) return;   // foi substituída por outra fala
+                    if (id !== falaId) return;
                     falando = false;
-                    setTimeout(ouvir, 300);      // depois de falar, volta a escutar sozinho
+                    setTimeout(ouvir, 300);
                 };
                 u.onend = fim; u.onerror = fim;
                 synth.speak(u);
@@ -281,9 +278,9 @@
             if (localIdentificado) {
                 msg = `Você está em ${localIdentificado}, no ${locais[localIdentificado].z + 1}º andar.`;
             } else if (andarConhecido !== null) {
-                msg = `Ainda não reconheci o local exato. Você está no ${andarConhecido + 1}º andar. Aponte a câmera para a frente.`;
+                msg = `Ainda não reconheci o local exato. Você está no ${andarConhecido + 1}º andar. Envie uma foto da frente.`;
             } else {
-                msg = "Ainda não sei onde você está. Aponte a câmera para a frente ou me diga o andar.";
+                msg = "Ainda não sei onde você está. Envie uma foto da frente ou me diga o andar.";
             }
             falar(msg, true);
         }
@@ -292,7 +289,6 @@
         const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
         let recognition = null;
         const semAcento = s => s.normalize("NFD").replace(/[\u0300-\u036f]/g, "");
-        // Nomes mais longos primeiro: "patio central" tem que ganhar de "patio".
         const chavesOrdenadas = Object.keys(locais).sort((a, b) => b.length - a.length);
 
         function acharAndar(f) {
@@ -312,7 +308,6 @@
             const debugUI = document.getElementById("debug-ia");
             debugUI.innerHTML = `🗣️ Voz detectou: "${original}"`;
 
-            // Comandos que valem em qualquer momento
             if (/onde (eu )?estou|onde estamos|qual (e )?(o )?(meu )?local/.test(f)) { dizerOndeEstou(); return; }
             if (/repet/.test(f)) { repetirUltimaInstrucao(); return; }
             if (/cancel|novo destino|outro destino/.test(f)) {
@@ -345,7 +340,7 @@
             if (d) {
                 debugUI.innerHTML += `<br>✅ Destino: <b>${d}</b>`;
                 setDestino(d);
-                if (!localIdentificado) falar(`Destino ${d}. Aponte a câmera para a frente para eu me localizar.`, true);
+                if (!localIdentificado) falar(`Destino ${d}. Envie uma foto da frente para eu me localizar.`, true);
             } else {
                 falar("Não encontrei esse local. Toque na tela e diga de novo.", true);
             }
@@ -359,7 +354,7 @@
             recognition.onstart = () => { escutando = true; vibrar("escuta"); };
             recognition.onend = () => {
                 escutando = false;
-                setTimeout(ouvir, 500);   // escuta contínua: reabre sozinho
+                setTimeout(ouvir, 500);
             };
             recognition.onresult = (e) => {
                 const original = e.results[0][0].transcript.toLowerCase();
@@ -370,7 +365,6 @@
                     micBloqueado = true;
                     falar("O microfone está bloqueado. Habilite a permissão de microfone nas configurações do navegador.", true);
                 }
-                // "no-speech" e "aborted" são normais em escuta contínua: silêncio, onend reabre.
             };
         }
 
@@ -379,7 +373,6 @@
             try { recognition.start(); } catch (e) {}
         }
 
-        // Toque na tela (fora dos botões) = ouvir agora. No iOS, o 1º start() exige gesto do usuário.
         function ativarMicrofone() {
             if (!recognition) { falar("Seu navegador não suporta reconhecimento de voz.", true); return; }
             micBloqueado = false;
@@ -509,7 +502,6 @@
 
         // ---------- INICIALIZAÇÃO (1 toque) ----------
         function desbloquearAudio() {
-            // iOS só libera fala e áudio depois de um gesto do usuário.
             try { synth.speak(new SpeechSynthesisUtterance("")); } catch (e) {}
             try {
                 audioCtx = new (window.AudioContext || window.webkitAudioContext)();
@@ -529,51 +521,16 @@
             }
         }
 
-        let streamAtivo = null, intervaloAnalise = null, analisandoFrame = false;
-        const canvasFrame = document.createElement("canvas");
-        canvasFrame.width = canvasFrame.height = 224;
-        const ctxFrame = canvasFrame.getContext("2d");
-
-        async function iniciarCamera() {
-            const video = document.getElementById("video-preview");
-            try {
-                const stream = await navigator.mediaDevices.getUserMedia({
-                    video: { facingMode: { ideal: "environment" }, width: { ideal: 640 }, height: { ideal: 480 } },
-                    audio: false
-                });
-                streamAtivo = stream;
-                video.muted = true;
-                video.setAttribute("playsinline", "");
-                video.setAttribute("webkit-playsinline", "");
-                video.srcObject = stream;
-                video.style.display = "block";
-                await video.play();   // no iOS o autoplay sozinho não basta
-                return true;
-            } catch (erro) {
-                console.error("Falha ao acessar a câmera:", erro);
-                return false;
-            }
-        }
-
-        // O iOS pausa o vídeo ao trocar de app/aba; retoma ao voltar.
-        document.addEventListener("visibilitychange", () => {
-            const v = document.getElementById("video-preview");
-            if (!document.hidden && streamAtivo && v.paused) v.play().catch(() => {});
-        });
-
         async function iniciarTudo() {
             if (iniciado) return;
             iniciado = true;
             desbloquearAudio();
             try { if (navigator.wakeLock) navigator.wakeLock.request("screen").catch(() => {}); } catch (e) {}
 
-            // A câmera é pedida AGORA (dentro do gesto), em paralelo ao download dos modelos.
-            const camP = iniciarCamera();
             falar("Iniciando. Carregando o sistema, aguarde.", true);
             document.getElementById("btn-init").innerText = "CARREGANDO...";
 
-            const [camOk, modOk] = await Promise.all([camP, carregarModelos()]);
-
+            const modOk = await carregarModelos();
             if (!modOk) {
                 iniciado = false;
                 document.getElementById("btn-init").innerText = "TOQUE PARA TENTAR NOVAMENTE";
@@ -582,31 +539,79 @@
             }
             document.getElementById("btn-init").style.display = "none";
 
-            const video = document.getElementById("video-preview");
-            if (camOk) {
-                intervaloAnalise = setInterval(() => analisarFrameAtual(video), INTERVALO_ANALISE_MS);
-            }
             fase = "andar";
-            falar((camOk ? "" : "Não consegui usar a câmera; vou funcionar só por voz. ") +
-                "Sistema pronto. Em qual andar você está? Diga primeiro, segundo ou terceiro andar, ou o nome do lugar. " +
+            falar("Sistema pronto. Em qual andar você está? Diga primeiro, segundo ou terceiro andar, ou o nome do lugar. " +
+                "Para eu me localizar, toque no botão roxo e envie uma foto da frente. " +
                 "A qualquer momento, pergunte: onde eu estou.", true);
         }
 
-        async function analisarFrameAtual(video) {
-            if (analisandoFrame || video.readyState < 2) return;
-            const s = Math.min(video.videoWidth, video.videoHeight);
-            if (!s) return;
-            analisandoFrame = true;
+        // ---------- FOTO (ARQUIVO) ----------
+        const canvasFrame = document.createElement("canvas");
+        canvasFrame.width = canvasFrame.height = 224;
+        const ctxFrame = canvasFrame.getContext("2d");
+        const inputFoto = document.getElementById("input-foto");
+        let processandoFoto = false, urlFotoAtual = null;
+
+        function escolherFoto() {
+            if (!iniciado) { iniciarTudo(); return; }
+            inputFoto.value = "";   // permite enviar a mesma foto de novo
+            inputFoto.click();
+        }
+
+        inputFoto.addEventListener("change", () => {
+            const arquivos = Array.from(inputFoto.files || []);
+            if (arquivos.length) processarFotos(arquivos);
+        });
+
+        function carregarImagem(arquivo) {
+            return new Promise((ok, erro) => {
+                const url = URL.createObjectURL(arquivo);
+                const img = new Image();
+                img.onload = () => ok({ img, url });
+                img.onerror = () => { URL.revokeObjectURL(url); erro(new Error("imagem inválida")); };
+                img.src = url;
+            });
+        }
+
+        async function processarFotos(arquivos) {
+            if (processandoFoto) return;
+            if (!Object.keys(modelosCarregados).length) { falar("O sistema ainda está carregando. Aguarde.", true); return; }
+            processandoFoto = true;
+            falar("Analisando a foto.", true);
             try {
-                // Recorte quadrado central em canvas: mais estável no Safari do que passar o <video> direto ao modelo.
-                ctxFrame.drawImage(video, (video.videoWidth - s) / 2, (video.videoHeight - s) / 2, s, s, 0, 0, 224, 224);
-                await predictFrame(canvasFrame);
+                let melhor = "", antes = localIdentificado;
+                for (const arquivo of arquivos) {
+                    const { img, url } = await carregarImagem(arquivo);
+                    const w = img.naturalWidth, h = img.naturalHeight, s = Math.min(w, h);
+                    // Recorte quadrado central, igual ao que o modelo espera
+                    ctxFrame.drawImage(img, (w - s) / 2, (h - s) / 2, s, s, 0, 0, 224, 224);
+
+                    const prev = document.getElementById("foto-preview");
+                    if (urlFotoAtual) URL.revokeObjectURL(urlFotoAtual);
+                    urlFotoAtual = url;
+                    prev.src = url;
+                    prev.style.display = "block";
+
+                    antes = localIdentificado;
+                    melhor = await predictFrame(canvasFrame);
+                }
+                // Feedback falado depois da última foto
+                if (melhor === "") {
+                    falar("Não reconheci o local nesta foto. Envie outra foto, apontando para a frente.", true);
+                } else if (localIdentificado === antes) {
+                    // Já estava neste local: confirma e repete a instrução
+                    falar(`Você continua em ${melhor}. ` + (ultimaInstrucao || ""), true);
+                }
+                // Se o local mudou, confirmarLocal já falou a instrução.
+            } catch (e) {
+                console.error(e);
+                falar("Não consegui abrir essa foto. Tente outra.", true);
             } finally {
-                analisandoFrame = false;
+                processandoFoto = false;
             }
         }
 
-        // Só aceita um local novo após N frames seguidos concordando (evita "piscar" em espaços amplos).
+        // Aceita um local novo após N fotos concordando (1 = cada foto já vale).
         function confirmarLocal(melhor) {
             if (melhor === localIdentificado) { candidatoLocal = null; contagemCandidato = 0; return; }
             if (melhor === candidatoLocal) contagemCandidato++;
@@ -623,7 +628,8 @@
             andarConhecido = locais[melhor].z;
             candidatoLocal = null; contagemCandidato = 0;
             document.getElementById("local-atual").innerHTML = `<span style="color: #00ff88;">🖼️ Local Confirmado: ${melhor} (Andar ${locais[melhor].z})</span>`;
-            atualizarNavegacao(melhor);
+            if (destinoAtual) atualizarNavegacao(melhor);
+            else falar(`Você está em ${melhor}. Para onde você quer ir?`, true);
         }
 
         async function predictFrame(imageElement) {
@@ -670,23 +676,26 @@
                 }
             }
 
-            const nota = candidatoLocal ? `<br>⏳ Confirmando ${candidatoLocal}: ${contagemCandidato}/${localIdentificado ? FRAMES_PARA_TROCAR : FRAMES_PRIMEIRO_LOCAL}` : "";
             document.getElementById("debug-ia").innerHTML =
                 `<span style="color:#aaa;">🧠 <b>Visão Bruta:</b>${textoIA_Bruta || "Nada claro"}</span><br><br>
-                 <span style="color:#00ff88;">🛡️ <b>Passou no Filtro:</b><br>${textoFiltro || "Nenhuma classe detectada"}</span>${nota}`;
+                 <span style="color:#00ff88;">🛡️ <b>Passou no Filtro:</b><br>${textoFiltro || "Nenhuma classe detectada"}</span>`;
 
             if (melhor !== "") {
                 if (locais[melhor]) confirmarLocal(melhor);
-                else document.getElementById("local-atual").innerHTML = `<span style="color: red;">❌ Erro crítico: A IA retornou '${melhor}', mas ele não existe.</span>`;
+                else {
+                    document.getElementById("local-atual").innerHTML = `<span style="color: red;">❌ Erro crítico: A IA retornou '${melhor}', mas ele não existe.</span>`;
+                    return "";
+                }
             } else if (!localIdentificado) {
-                document.getElementById("local-atual").innerHTML = `<span style="color: #ffaa00;">⚠️ Ainda não reconheci o local. Aponte a câmera para o corredor.</span>`;
+                document.getElementById("local-atual").innerHTML = `<span style="color: #ffaa00;">⚠️ Ainda não reconheci o local. Envie outra foto do corredor.</span>`;
             }
+            return melhor;
         }
 
         // 1º toque em qualquer lugar = inicia tudo. Depois: toque fora dos botões = "ouvir agora".
         document.addEventListener("click", (e) => {
             if (!iniciado) iniciarTudo();
-            else if (!e.target.closest("button")) ativarMicrofone();
+            else if (!e.target.closest("button, input")) ativarMicrofone();
         });
     </script>
 </body>
