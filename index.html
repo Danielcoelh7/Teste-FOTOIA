@@ -33,7 +33,7 @@
     <img id="foto-preview" alt="Última foto analisada">
     <input type="file" id="input-foto" accept="image/*" multiple style="display:none;">
 
-    <div id="status-box" aria-live="polite">
+    <div id="status-box" aria-hidden="true">
         <div id="instrucao">Aguardando...</div>
         <div id="direcao-texto">---</div>
         <div id="alerta-andar" class="alerta-andar">⚠️ Mudança de Andar</div>
@@ -59,7 +59,6 @@
         };
         let modelosCarregados = {};
 
-        // Com foto enviada por arquivo, cada foto já confirma o local (1 foto = 1 análise).
         const FRAMES_PARA_TROCAR = 1;
         const FRAMES_PRIMEIRO_LOCAL = 1;
 
@@ -98,7 +97,6 @@
             "corredor direita": { x: 900, y: 500, z: 1, vizinhos: ["Centro"], silencioso: false }
         };
 
-        // Instruções por trecho "ORIGEM|DESTINO". A volta nem sempre é o espelho da ida.
         const instrucoesManuais = {
             "Portaria|Caminho entrada": "Siga em frente.",
             "Caminho entrada|Portaria": "Siga em frente.",
@@ -177,24 +175,21 @@
             "corredor direita|Centro": "Siga apenas o piso tátil, à esquerda."
         };
 
-        // Instruções com CONTEXTO "ANTERIOR|ATUAL|PROXIMO" (prioridade sobre as manuais).
         const instrucoesComContexto = {
             "rampa0|Central|caminho cantina": "Vire à direita para procurar o piso tátil."
         };
 
         let historicoLocais = [];
 
-        // ---------- ESTADO ----------
         let destinoAtual = null, localIdentificado = null;
         let andarConhecido = null;
-        let fase = "andar";            // "andar" -> "destino"
+        let fase = "andar";
         let iniciado = false;
         let ultimaFala = "", ultimaInstrucao = "";
         let falando = false, falaId = 0;
         let escutando = false, micBloqueado = false;
         let candidatoLocal = null, contagemCandidato = 0;
 
-        // ---------- FEEDBACK: VIBRAÇÃO + BIPE ----------
         let audioCtx = null;
         function bipe(freq, ms) {
             if (!audioCtx) return;
@@ -216,7 +211,6 @@
         function vibrar(tipo) {
             const p = PADROES[tipo] || PADROES.reto;
             if (navigator.vibrate) { navigator.vibrate(p); return; }
-            // Fallback iOS (sem vibração): bipes com a mesma cadência
             let t = 0;
             p.forEach((d, i) => {
                 if (i % 2 === 0) setTimeout(() => bipe(tipo === "andar" ? 520 : 800, d), t);
@@ -224,7 +218,6 @@
             });
         }
 
-        // ---------- VOZ (SÍNTESE) ----------
         const synth = window.speechSynthesis;
         let vozPreferida = null;
         function carregarVozes() {
@@ -252,7 +245,6 @@
                 const fim = () => {
                     if (id !== falaId) return;
                     falando = false;
-                    setTimeout(ouvir, 300);
                 };
                 u.onend = fim; u.onerror = fim;
                 synth.speak(u);
@@ -262,8 +254,8 @@
         function falarInstrucao(texto, mudouAndar) {
             ultimaInstrucao = texto;
             if (mudouAndar) vibrar("andar");
-            else if (/\bvire\b.*esquerda/i.test(texto)) vibrar("esquerda");
-            else if (/\bvire\b.*direita/i.test(texto)) vibrar("direita");
+            else if (/ vire .*esquerda/i.test(texto)) vibrar("esquerda");
+            else if (/ vire .*direita/i.test(texto)) vibrar("direita");
             else vibrar("reto");
             falar(texto, true);
         }
@@ -285,21 +277,37 @@
             falar(msg, true);
         }
 
-        // ---------- VOZ (RECONHECIMENTO) ----------
         const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
         let recognition = null;
         const semAcento = s => s.normalize("NFD").replace(/[\u0300-\u036f]/g, "");
         const chavesOrdenadas = Object.keys(locais).sort((a, b) => b.length - a.length);
 
+        // Apelidos para nomes que ninguém fala naturalmente (sem acento, minúsculo)
+        const APELIDOS = {
+            "escada": "Escada0",
+            "rampa de baixo": "rampa0",
+            "rampa de cima": "rampa2",
+            "pateo": "patio"
+        };
+
+        // Frases que o próprio app fala (evita reagir ao eco da própria voz)
+        const ECO = /toque (na tela|no botao)|diga de novo|nao encontrei esse local|para onde voce quer ir|nao entendi|destino cancelado|em qual andar|envie uma foto|sistema pronto/;
+
+        // Entende "primeiro", "primeira", "1º", "1o", "andar 1", "térreo", "segundo", "2º"...
         function acharAndar(f) {
-            if (/\b(primeiro|terreo|baixo|um|1)\b/.test(f)) return 0;
-            if (/\b(segundo|dois|2)\b/.test(f)) return 1;
-            if (/\b(terceiro|tres|3)\b/.test(f)) return 2;
+            // troca qualquer símbolo (º, °, ., vírgula) por espaço e põe espaços nas pontas
+            f = " " + f.replace(/[^a-z0-9]+/g, " ") + " ";
+            if (/primeir|terre|baixo| (um|1|1o|1a) /.test(f)) return 0;
+            if (/segund| (dois|2|2o|2a) /.test(f)) return 1;
+            if (/terceir| (tres|3|3o|3a) /.test(f)) return 2;
             return null;
         }
         function acharLocal(f, soDestino) {
             for (const l of chavesOrdenadas) {
                 if (f.includes(semAcento(l.toLowerCase())) && (!soDestino || !locais[l].silencioso)) return l;
+            }
+            for (const [apelido, real] of Object.entries(APELIDOS)) {
+                if (f.includes(apelido)) return real;
             }
             return null;
         }
@@ -308,16 +316,19 @@
             const debugUI = document.getElementById("debug-ia");
             debugUI.innerHTML = `🗣️ Voz detectou: "${original}"`;
 
+            // CORREÇÃO LOOP: ignora o eco da própria voz do app
+            if (ECO.test(f)) return;
+
             if (/onde (eu )?estou|onde estamos|qual (e )?(o )?(meu )?local/.test(f)) { dizerOndeEstou(); return; }
             if (/repet/.test(f)) { repetirUltimaInstrucao(); return; }
             if (/cancel|novo destino|outro destino/.test(f)) {
                 destinoAtual = null; fase = "destino";
                 document.getElementById("instrucao").innerText = "Sem destino";
-                falar("Destino cancelado. Para onde você quer ir?", true); return;
+                falar("Destino cancelado. Toque no botão laranja e diga para onde quer ir.", true); return;
             }
             if (/trocar (de )?andar|mudei de andar|outro andar/.test(f)) {
                 fase = "andar";
-                falar("Em qual andar você está agora? Diga primeiro, segundo ou terceiro andar.", true); return;
+                falar("Em qual andar você está agora? Toque no botão laranja e diga primeiro, segundo ou terceiro andar.", true); return;
             }
 
             if (fase === "andar") {
@@ -329,10 +340,10 @@
                 } else if (a !== null) {
                     andarConhecido = a;
                 } else {
-                    falar("Não entendi. Diga o andar, ou o nome do lugar onde você está.", true); return;
+                    falar("Não entendi. Toque no botão laranja e diga o andar, ou o nome do lugar onde você está.", true); return;
                 }
                 fase = "destino";
-                falar(`Certo, ${andarConhecido + 1}º andar${l ? ", perto de " + l : ""}. Para onde você quer ir?`, true);
+                falar(`Certo, ${andarConhecido + 1}º andar${l ? ", perto de " + l : ""}. Para onde você quer ir? Toque no botão laranja e diga o destino.`, true);
                 return;
             }
 
@@ -342,7 +353,7 @@
                 setDestino(d);
                 if (!localIdentificado) falar(`Destino ${d}. Envie uma foto da frente para eu me localizar.`, true);
             } else {
-                falar("Não encontrei esse local. Toque na tela e diga de novo.", true);
+                falar("Não encontrei esse local. Toque no botão laranja e diga de novo.", true);
             }
         }
 
@@ -352,15 +363,16 @@
             recognition.continuous = false;
 
             recognition.onstart = () => { escutando = true; vibrar("escuta"); };
-            recognition.onend = () => {
-                escutando = false;
-                setTimeout(ouvir, 500);
-            };
+            recognition.onend = () => { escutando = false; };
             recognition.onresult = (e) => {
                 const original = e.results[0][0].transcript.toLowerCase();
                 processarFala(semAcento(original), original);
             };
             recognition.onerror = (e) => {
+                if (e.error === "no-speech") {
+                    falar("Não ouvi nada. Toque no botão laranja e fale.", true);
+                    return;
+                }
                 if (e.error === "not-allowed" || e.error === "service-not-allowed") {
                     micBloqueado = true;
                     falar("O microfone está bloqueado. Habilite a permissão de microfone nas configurações do navegador.", true);
@@ -368,6 +380,7 @@
             };
         }
 
+        // O microfone SÓ abre quando o usuário toca (botão laranja ou tela). Nunca sozinho.
         function ouvir() {
             if (!recognition || !iniciado || falando || escutando || micBloqueado) return;
             try { recognition.start(); } catch (e) {}
@@ -382,7 +395,6 @@
             setTimeout(ouvir, 250);
         }
 
-        // ---------- NAVEGAÇÃO ----------
         function calcularDistancia(a, b) {
             return Math.sqrt(
                 Math.pow(locais[a].x - locais[b].x, 2) +
@@ -447,9 +459,10 @@
                 const anterior = historicoLocais.length > 0 ? historicoLocais[historicoLocais.length - 1] : null;
                 const chaveTripla = anterior ? (anterior + "|" + posicaoAtual + "|" + proximo) : null;
                 const chaveManual = posicaoAtual + "|" + proximo;
+
                 const txtMudanca = zProximo > zAtual
-                    ? `⚠️ Mudança de andar: subindo para o andar ${zProximo}`
-                    : `⚠️ Mudança de andar: descendo para o andar ${zProximo}`;
+                    ? `⚠️ Mudança de andar: subindo para o ${zProximo + 1}º andar`
+                    : `⚠️ Mudança de andar: descendo para o ${zProximo + 1}º andar`;
 
                 if (chaveTripla && instrucoesComContexto[chaveTripla]) {
                     instrucao = instrucoesComContexto[chaveTripla];
@@ -460,13 +473,13 @@
                 } else if (noProximo.tipo === "rampa" && zProximo === zAtual && zDestino > zAtual) {
                     instrucao = `Para chegar mais rápido, vá para ${proximo} e suba.`;
                 } else if (noAtual.tipo === "rampa" && zProximo > zAtual) {
-                    avisoAndar(`⚠️ Suba a partir de ${posicaoAtual} para o andar ${zProximo}`);
+                    avisoAndar(`⚠️ Suba a partir de ${posicaoAtual} para o andar ${zProximo + 1}`);
                     instrucao = `Você chegou em ${posicaoAtual}. Agora suba, seguindo sempre o corrimão à ${noAtual.corrimao || "esquerda"}.`;
                 } else if (zProximo > zAtual) {
-                    avisoAndar(`⚠️ Suba para o andar ${zProximo} (Corrimão à ${(noProximo.corrimao || "esquerda")})`);
+                    avisoAndar(`⚠️ Suba para o ${zProximo + 1}º andar (Corrimão à ${(noProximo.corrimao || "esquerda")})`);
                     instrucao = `Suba em direção a ${proximo}, seguindo sempre o corrimão à ${noProximo.corrimao || "esquerda"}.`;
                 } else if (zProximo < zAtual) {
-                    avisoAndar(`⚠️ Desça para o andar ${zProximo} (Corrimão à Direita)`);
+                    avisoAndar(`⚠️ Desça para o ${zProximo + 1}º andar (Corrimão à Direita)`);
                     instrucao = `Desça em direção a ${proximo}, seguindo sempre o corrimão à direita.`;
                 }
 
@@ -500,7 +513,6 @@
             return permitidos;
         }
 
-        // ---------- INICIALIZAÇÃO (1 toque) ----------
         function desbloquearAudio() {
             try { synth.speak(new SpeechSynthesisUtterance("")); } catch (e) {}
             try {
@@ -540,12 +552,11 @@
             document.getElementById("btn-init").style.display = "none";
 
             fase = "andar";
-            falar("Sistema pronto. Em qual andar você está? Diga primeiro, segundo ou terceiro andar, ou o nome do lugar. " +
+            falar("Sistema pronto. O microfone só abre quando você toca no botão laranja. Toque nele e diga em qual andar você está: primeiro, segundo ou terceiro, ou o nome do lugar. " +
                 "Para eu me localizar, toque no botão roxo e envie uma foto da frente. " +
                 "A qualquer momento, pergunte: onde eu estou.", true);
         }
 
-        // ---------- FOTO (ARQUIVO) ----------
         const canvasFrame = document.createElement("canvas");
         canvasFrame.width = canvasFrame.height = 224;
         const ctxFrame = canvasFrame.getContext("2d");
@@ -554,7 +565,7 @@
 
         function escolherFoto() {
             if (!iniciado) { iniciarTudo(); return; }
-            inputFoto.value = "";   // permite enviar a mesma foto de novo
+            inputFoto.value = "";
             inputFoto.click();
         }
 
@@ -580,10 +591,10 @@
             falar("Analisando a foto.", true);
             try {
                 let melhor = "", antes = localIdentificado;
+
                 for (const arquivo of arquivos) {
                     const { img, url } = await carregarImagem(arquivo);
                     const w = img.naturalWidth, h = img.naturalHeight, s = Math.min(w, h);
-                    // Recorte quadrado central, igual ao que o modelo espera
                     ctxFrame.drawImage(img, (w - s) / 2, (h - s) / 2, s, s, 0, 0, 224, 224);
 
                     const prev = document.getElementById("foto-preview");
@@ -592,17 +603,14 @@
                     prev.src = url;
                     prev.style.display = "block";
 
-                    antes = localIdentificado;
                     melhor = await predictFrame(canvasFrame);
                 }
-                // Feedback falado depois da última foto
+
                 if (melhor === "") {
                     falar("Não reconheci o local nesta foto. Envie outra foto, apontando para a frente.", true);
                 } else if (localIdentificado === antes) {
-                    // Já estava neste local: confirma e repete a instrução
                     falar(`Você continua em ${melhor}. ` + (ultimaInstrucao || ""), true);
                 }
-                // Se o local mudou, confirmarLocal já falou a instrução.
             } catch (e) {
                 console.error(e);
                 falar("Não consegui abrir essa foto. Tente outra.", true);
@@ -611,7 +619,6 @@
             }
         }
 
-        // Aceita um local novo após N fotos concordando (1 = cada foto já vale).
         function confirmarLocal(melhor) {
             if (melhor === localIdentificado) { candidatoLocal = null; contagemCandidato = 0; return; }
             if (melhor === candidatoLocal) contagemCandidato++;
@@ -627,9 +634,9 @@
             localIdentificado = melhor;
             andarConhecido = locais[melhor].z;
             candidatoLocal = null; contagemCandidato = 0;
-            document.getElementById("local-atual").innerHTML = `<span style="color: #00ff88;">🖼️ Local Confirmado: ${melhor} (Andar ${locais[melhor].z})</span>`;
+            document.getElementById("local-atual").innerHTML = `<span style="color: #00ff88;">🖼️ Local Confirmado: ${melhor} (Andar ${locais[melhor].z + 1})</span>`;
             if (destinoAtual) atualizarNavegacao(melhor);
-            else falar(`Você está em ${melhor}. Para onde você quer ir?`, true);
+            else falar(`Você está em ${melhor}. Toque no botão laranja e diga para onde quer ir.`, true);
         }
 
         async function predictFrame(imageElement) {
@@ -692,7 +699,6 @@
             return melhor;
         }
 
-        // 1º toque em qualquer lugar = inicia tudo. Depois: toque fora dos botões = "ouvir agora".
         document.addEventListener("click", (e) => {
             if (!iniciado) iniciarTudo();
             else if (!e.target.closest("button, input")) ativarMicrofone();
