@@ -89,7 +89,10 @@
             "rampa0": { x: 600, y: 600, z: 0, vizinhos: ["patio central", "caminho centro", "Central", "rampa2"], silencioso: false, tipo: "rampa", corrimao: "esquerda" },
             "rampa2": { x: 600, y: 600, z: 1, vizinhos: ["rampa0", "Centro", "rampa3", "corredor central"], silencioso: false, tipo: "rampa", corrimao: "esquerda" },
             "rampa3": { x: 650, y: 600, z: 1, vizinhos: ["rampa2", "rampa4", "Centro", "corredor central"], silencioso: false, tipo: "rampa", corrimao: "esquerda" },
-            "rampa4": { x: 700, y: 600, z: 2, vizinhos: ["rampa3"], silencioso: false, tipo: "rampa", corrimao: "esquerda" },
+            "rampa4": { x: 700, y: 600, z: 2, vizinhos: ["rampa3", "Superior"], silencioso: false, tipo: "rampa", corrimao: "esquerda" },
+
+            "Superior": { x: 750, y: 550, z: 2, vizinhos: ["rampa4", "Caminho laboratorio"], silencioso: false },
+            "Caminho laboratorio": { x: 800, y: 500, z: 2, vizinhos: ["Superior"], silencioso: false },
 
             "corredor central": { x: 600, y: 500, z: 1, vizinhos: ["Centro", "rampa2", "rampa3"], silencioso: false },
             "Centro": { x: 700, y: 500, z: 1, vizinhos: ["corredor central", "corredor esquerda", "corredor direita", "Rampa maior", "rampa2", "rampa3"], silencioso: false },
@@ -161,6 +164,12 @@
 
             "rampa3|rampa4": "Suba.",
             "rampa4|rampa3": "Desça.",
+
+            "rampa4|Superior": "Siga em frente.",
+            "Superior|rampa4": "Siga em frente até a rampa e desça.",
+
+            "Superior|Caminho laboratorio": "Vire à esquerda.",
+            "Caminho laboratorio|Superior": "Vire à direita.",
 
             "rampa2|Centro": "Siga em frente até o piso tátil, vire à esquerda e vire novamente à esquerda depois de andar um pouco.",
             "Centro|rampa2": "Vire à direita, siga um pouco e vire à direita novamente até o piso tátil.",
@@ -254,8 +263,8 @@
         function falarInstrucao(texto, mudouAndar) {
             ultimaInstrucao = texto;
             if (mudouAndar) vibrar("andar");
-            else if (/ vire .*esquerda/i.test(texto)) vibrar("esquerda");
-            else if (/ vire .*direita/i.test(texto)) vibrar("direita");
+            else if (/(^|\s)vire .*esquerda/i.test(texto)) vibrar("esquerda");
+            else if (/(^|\s)vire .*direita/i.test(texto)) vibrar("direita");
             else vibrar("reto");
             falar(texto, true);
         }
@@ -287,7 +296,8 @@
             "escada": "Escada0",
             "rampa de baixo": "rampa0",
             "rampa de cima": "rampa2",
-            "pateo": "patio"
+            "pateo": "patio",
+            "laboratorio": "Caminho laboratorio"
         };
 
         // Frases que o próprio app fala (evita reagir ao eco da própria voz)
