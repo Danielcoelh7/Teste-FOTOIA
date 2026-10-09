@@ -32,6 +32,7 @@
 
     <img id="foto-preview" alt="Última foto analisada">
     <input type="file" id="input-foto" accept="image/*" multiple style="display:none;">
+    <input type="file" id="input-camera" accept="image/*" capture="environment" style="display:none;">
 
     <div id="status-box" aria-hidden="true">
         <div id="instrucao">Aguardando...</div>
@@ -44,8 +45,6 @@
     <div style="width: 100%; max-width: 450px;">
         <button id="btn-foto" onclick="escolherFoto()">📷 Enviar foto</button>
         <button id="btn-ouvir" onclick="ativarMicrofone()">🎤 Toque para falar</button>
-        <button id="btn-onde" onclick="dizerOndeEstou()">📍 Onde eu estou?</button>
-        <button id="btn-repetir" onclick="repetirUltimaInstrucao()">🔁 Repetir última instrução</button>
     </div>
 
     <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@4.20.0/dist/tf.min.js"></script>
@@ -58,6 +57,10 @@
             2: "https://teachablemachine.withgoogle.com/models/N6xHCcS5t/"
         };
         let modelosCarregados = {};
+
+        // Multiplicador de probabilidade para os lugares VIZINHOS do local atual.
+        // 1 = sem efeito. Quanto maior, mais o app "acredita" que você foi para um vizinho.
+        const MULT_VIZINHO = 1.5;
 
         const FRAMES_PARA_TROCAR = 1;
         const FRAMES_PRIMEIRO_LOCAL = 1;
@@ -148,8 +151,15 @@
             "Central|corredor biblioteca": "Continue em frente, dando mais 40 passos até a biblioteca.",
             "corredor biblioteca|Central": "Vire à esquerda.",
 
-            "corredor biblioteca|biblioteca": "Siga em frente.",
-            "biblioteca|corredor biblioteca": "Ao sair da biblioteca, vire à esquerda.",
+            "corredor biblioteca|biblioteca": ["Siga em frente aproximadamente 40 passos. A porta da biblioteca estará à esquerda."],
+            "biblioteca|corredor biblioteca": [
+                "Ao sair da biblioteca, dê 5 passos à frente.",
+                "Vire à esquerda e siga aproximadamente 40 passos."
+            ],
+            "corredor biblioteca|rampa0": [
+                "Vire à direita e dê 5 passos, até encontrar o piso tátil.",
+                "Vire à direita."
+            ],
 
             "caminho centro|Central": "Siga em frente.",
             "Central|caminho centro": "Siga em frente.",
@@ -163,7 +173,10 @@
             "caminho centro|rampa0": "Siga um pouco à frente e procure a rampa ao lado direito.",
             "rampa0|caminho centro": "Vire à esquerda e siga em frente.",
 
-            "Central|rampa0": "Vire à esquerda e dê 8 passos até o piso tátil. Depois, vire à direita e você encontrará a rampa.",
+            "Central|rampa0": [
+                "Vire à esquerda e dê 8 passos até o piso tátil.",
+                "Depois, siga reto e você encontrará a rampa."
+            ],
             "rampa0|Central": "Desça.",
 
             "rampa0|corredor biblioteca": [
@@ -193,7 +206,13 @@
             "corredor esquerda|Centro": "Vire à direita, siga até o piso tátil e vire à direita novamente.",
 
             "Centro|corredor central": "Siga o piso tátil à direita até a interligação com o piso tátil do centro.",
-            "corredor central|Centro": "Siga o piso tátil à esquerda.",
+            "corredor central|Centro": "Encontre o piso tátil e acompanhe-o.",
+
+            "corredor central|rampa2": [
+                "Encontre o piso tátil e acompanhe-o até a divisão para os lados, quando não houver mais caminho à frente.",
+                "Vire à esquerda e dê aproximadamente 10 passos.",
+                "Vire à direita. A rampa 2 estará à frente."
+            ],
 
             "Centro|corredor direita": "Siga apenas o piso tátil, à direita.",
             "corredor direita|Centro": "Siga apenas o piso tátil, à esquerda."
@@ -208,6 +227,7 @@
         let andarConhecido = null;
         let fase = "andar";
         let iniciado = false;
+        let sistemaPronto = false; // só aceita toques depois que os modelos carregaram
         let ultimaFala = "", ultimaInstrucao = "";
         let falando = false, falaId = 0;
         let escutando = false, micBloqueado = false;
@@ -294,7 +314,7 @@
         function textoDoPasso() {
             const t = passosLista[passoIdx];
             const ultimo = passoIdx >= passosLista.length - 1;
-            return ultimo ? t : t + " Quando terminar, toque no botão laranja e diga pronto.";
+            return ultimo ? t : t + " Quando terminar, toque uma vez na tela e diga pronto.";
         }
         function mostrarPasso(mudouAndar) {
             const n = passosLista.length;
@@ -311,7 +331,7 @@
                 passoIdx++;
                 mostrarPasso(false);
             } else {
-                falar("Não há mais passos. Envie uma foto da frente para confirmar onde você está.", true);
+                falar("Não há mais passos. Dê dois toques na tela e tire uma foto da frente para confirmar onde você está.", true);
             }
         }
 
@@ -325,9 +345,9 @@
             if (localIdentificado) {
                 msg = `Você está em ${localIdentificado}, no ${locais[localIdentificado].z + 1}º andar.`;
             } else if (andarConhecido !== null) {
-                msg = `Ainda não reconheci o local exato. Você está no ${andarConhecido + 1}º andar. Envie uma foto da frente.`;
+                msg = `Ainda não reconheci o local exato. Você está no ${andarConhecido + 1}º andar. Dê dois toques na tela e tire uma foto da frente.`;
             } else {
-                msg = "Ainda não sei onde você está. Envie uma foto da frente ou me diga o andar.";
+                msg = "Ainda não sei onde você está. Dê dois toques na tela e tire uma foto da frente ou me diga o andar.";
             }
             falar(msg, true);
         }
@@ -347,7 +367,7 @@
         };
 
         // Frases que o próprio app fala (evita reagir ao eco da própria voz)
-        const ECO = /toque (na tela|no botao)|diga de novo|nao encontrei esse local|para onde voce quer ir|nao entendi|destino cancelado|em qual andar|envie uma foto|sistema pronto/;
+        const ECO = /toque (uma vez )?(na tela|no botao)|dois toques|tire (uma|outra) foto|diga de novo|nao encontrei esse local|para onde voce quer ir|nao entendi|destino cancelado|em qual andar|envie uma foto|sistema pronto/;
 
         // Entende "primeiro", "primeira", "1º", "1o", "andar 1", "térreo", "segundo", "2º"...
         function acharAndar(f) {
@@ -378,16 +398,16 @@
             // "pronto" = terminei este passo, fale o próximo
             if (/pront|feito|termin|conclu|\bok\b|proximo passo|continu/.test(f)) { proximoPasso(); return; }
 
-            if (/onde (eu )?estou|onde estamos|qual (e )?(o )?(meu )?local/.test(f)) { dizerOndeEstou(); return; }
-            if (/repet/.test(f)) { repetirUltimaInstrucao(); return; }
+            if (/onde (eu )?estou|onde estamos|onde to |qual (e )?(o )?(meu )?(local|lugar)|minha posicao/.test(f)) { dizerOndeEstou(); return; }
+            if (/repet|de novo a instrucao|fala de novo|falar de novo/.test(f)) { repetirUltimaInstrucao(); return; }
             if (/cancel|novo destino|outro destino/.test(f)) {
                 destinoAtual = null; fase = "destino";
                 document.getElementById("instrucao").innerText = "Sem destino";
-                falar("Destino cancelado. Toque no botão laranja e diga para onde quer ir.", true); return;
+                falar("Destino cancelado. Toque uma vez na tela e diga para onde quer ir.", true); return;
             }
             if (/trocar (de )?andar|mudei de andar|outro andar/.test(f)) {
                 fase = "andar";
-                falar("Em qual andar você está agora? Toque no botão laranja e diga primeiro, segundo ou terceiro andar.", true); return;
+                falar("Em qual andar você está agora? Toque uma vez na tela e diga primeiro, segundo ou terceiro andar.", true); return;
             }
 
             if (fase === "andar") {
@@ -399,10 +419,10 @@
                 } else if (a !== null) {
                     andarConhecido = a;
                 } else {
-                    falar("Não entendi. Toque no botão laranja e diga o andar, ou o nome do lugar onde você está.", true); return;
+                    falar("Não entendi. Toque uma vez na tela e diga o andar, ou o nome do lugar onde você está.", true); return;
                 }
                 fase = "destino";
-                falar(`Certo, ${andarConhecido + 1}º andar${l ? ", perto de " + l : ""}. Para onde você quer ir? Toque no botão laranja e diga o destino.`, true);
+                falar(`Certo, ${andarConhecido + 1}º andar${l ? ", perto de " + l : ""}. Para onde você quer ir? Toque uma vez na tela e diga o destino.`, true);
                 return;
             }
 
@@ -410,9 +430,9 @@
             if (d) {
                 debugUI.innerHTML += `<br>✅ Destino: <b>${d}</b>`;
                 setDestino(d);
-                if (!localIdentificado) falar(`Destino ${d}. Envie uma foto da frente para eu me localizar.`, true);
+                if (!localIdentificado) falar(`Destino ${d}. Dê dois toques na tela e tire uma foto da frente para eu me localizar.`, true);
             } else {
-                falar("Não encontrei esse local. Toque no botão laranja e diga de novo.", true);
+                falar("Não encontrei esse local. Toque uma vez na tela e diga de novo.", true);
             }
         }
 
@@ -429,7 +449,7 @@
             };
             recognition.onerror = (e) => {
                 if (e.error === "no-speech") {
-                    falar("Não ouvi nada. Toque no botão laranja e fale.", true);
+                    falar("Não ouvi nada. Toque uma vez na tela e fale.", true);
                     return;
                 }
                 if (e.error === "not-allowed" || e.error === "service-not-allowed") {
@@ -614,11 +634,12 @@
                 return;
             }
             document.getElementById("btn-init").style.display = "none";
+            sistemaPronto = true;
 
             fase = "andar";
-            falar("Sistema pronto. O microfone só abre quando você toca no botão laranja. Toque nele e diga em qual andar você está: primeiro, segundo ou terceiro, ou o nome do lugar. " +
-                "Para eu me localizar, toque no botão roxo e envie uma foto da frente. " +
-                "A qualquer momento, pergunte: onde eu estou.", true);
+            falar("Sistema pronto. Um toque na tela abre o microfone para você falar. Dois toques rápidos abrem a câmera. " +
+                "A qualquer momento, diga: onde estou, ou: repetir. " +
+                "Agora dê um toque na tela e diga em qual andar você está: primeiro, segundo ou terceiro, ou o nome do lugar.", true);
         }
 
         const canvasFrame = document.createElement("canvas");
@@ -671,7 +692,7 @@
                 }
 
                 if (melhor === "") {
-                    falar("Não reconheci o local nesta foto. Envie outra foto, apontando para a frente.", true);
+                    falar("Não reconheci o local nesta foto. Dê dois toques na tela e tire outra foto, apontando para a frente.", true);
                 } else if (localIdentificado === antes) {
                     falar(`Você continua em ${melhor}. ` + (ultimaInstrucao || ""), true);
                 }
@@ -700,7 +721,7 @@
             candidatoLocal = null; contagemCandidato = 0;
             document.getElementById("local-atual").innerHTML = `<span style="color: #00ff88;">🖼️ Local Confirmado: ${melhor} (Andar ${locais[melhor].z + 1})</span>`;
             if (destinoAtual) atualizarNavegacao(melhor);
-            else falar(`Você está em ${melhor}. Toque no botão laranja e diga para onde quer ir.`, true);
+            else falar(`Você está em ${melhor}. Toque uma vez na tela e diga para onde quer ir.`, true);
         }
 
         async function predictFrame(imageElement) {
@@ -740,10 +761,17 @@
                     }
                     if (bloqueado) continue;
 
-                    if (prob > 0.01) textoFiltro += `${nomeClasse} (Z=${andar}): ${(prob * 100).toFixed(0)}% | `;
+                    // vizinhos do local atual ganham o multiplicador (o próprio local não)
+                    const ehVizinho = localIdentificado !== null && nomeClasse !== localIdentificado;
+                    const probAjustada = ehVizinho ? prob * MULT_VIZINHO : prob;
+
+                    if (prob > 0.01) {
+                        textoFiltro += `${nomeClasse} (Z=${andar}): ${(prob * 100).toFixed(0)}%` +
+                            (ehVizinho ? ` ×${MULT_VIZINHO}=${(probAjustada * 100).toFixed(0)}%` : "") + " | ";
+                    }
 
                     let limiteAceitacao = localIdentificado ? 0.20 : 0.35;
-                    if (prob > limiteAceitacao && prob > max) { max = prob; melhor = nomeClasse; }
+                    if (probAjustada > limiteAceitacao && probAjustada > max) { max = probAjustada; melhor = nomeClasse; }
                 }
             }
 
@@ -763,9 +791,38 @@
             return melhor;
         }
 
+        // ===== Gestos: 1 toque = microfone | 2 toques rápidos = câmera =====
+        const inputCamera = document.getElementById("input-camera");
+        inputCamera.addEventListener("change", () => {
+            const arquivos = Array.from(inputCamera.files || []);
+            if (arquivos.length) processarFotos(arquivos);
+        });
+
+        function abrirCamera() {
+            if (processandoFoto) return;
+            vibrar("escuta");
+            synth.cancel(); falaId++; falando = false;
+            inputCamera.value = "";
+            inputCamera.click();
+        }
+
+        let timerToque = null;
+        const JANELA_TOQUE_DUPLO = 350; // ms entre os dois toques
+
         document.addEventListener("click", (e) => {
-            if (!iniciado) iniciarTudo();
-            else if (!e.target.closest("button, input")) ativarMicrofone();
+            if (!iniciado) { iniciarTudo(); return; }
+            if (!sistemaPronto) return;                    // ainda carregando
+            if (e.target.closest("button, input")) return; // botões têm função própria
+
+            if (timerToque) {                              // segundo toque => câmera
+                clearTimeout(timerToque); timerToque = null;
+                abrirCamera();
+            } else {                                       // primeiro toque: espera o segundo
+                timerToque = setTimeout(() => {
+                    timerToque = null;
+                    ativarMicrofone();                     // só um toque => microfone
+                }, JANELA_TOQUE_DUPLO);
+            }
         });
     </script>
 </body>
