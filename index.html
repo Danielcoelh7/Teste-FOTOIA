@@ -22,6 +22,18 @@
         @keyframes piscar { 50% { opacity: 0.6; } }
         #foto-preview { width: 100%; max-width: 450px; border: 3px solid #8844ff; border-radius: 20px; display: none; margin-bottom: 20px; background: #111; }
         #debug-ia { font-size: 0.75rem; background: #222; padding: 10px; border-radius: 8px; margin-top: 15px; text-align: left; word-wrap: break-word; line-height: 1.4; border: 1px dashed #555; }
+
+        /* ===== Painel de gravação de trechos ===== */
+        #painel-gravacao { width: 100%; max-width: 450px; margin-top: 25px; background: #111; border: 2px solid #0088ff; border-radius: 15px; padding: 10px 15px; box-sizing: border-box; text-align: left; }
+        #painel-gravacao summary { cursor: pointer; font-weight: bold; color: #0088ff; padding: 8px 0; }
+        #painel-gravacao label { display: block; margin-top: 10px; font-size: 0.85rem; color: #ccc; }
+        #painel-gravacao select, #painel-gravacao input[type=text], #painel-gravacao input[type=number], #painel-gravacao textarea { width: 100%; box-sizing: border-box; margin-top: 4px; padding: 8px; border-radius: 6px; border: 1px solid #555; background: #222; color: #fff; font-size: 0.9rem; }
+        #painel-gravacao button { margin-top: 10px; margin-right: 6px; background: #0088ff; color: #fff; }
+        #btn-gravar.gravando { background: #ff3344; animation: piscar 1s infinite; }
+        #grav-status { margin-top: 10px; padding: 8px; background: #222; border-radius: 6px; font-size: 0.8rem; line-height: 1.4; }
+        .trecho { display: flex; justify-content: space-between; align-items: center; gap: 8px; padding: 6px 0; border-bottom: 1px solid #333; font-size: 0.8rem; }
+        .trecho button { margin: 0; padding: 6px 10px; background: #552222; }
+        .ajuda-grav { font-size: 0.8rem; color: #aaa; line-height: 1.4; }
     </style>
 </head>
 <body>
@@ -47,6 +59,24 @@
         <button id="btn-ouvir" onclick="ativarMicrofone()">🎤 Toque para falar</button>
     </div>
 
+    <!-- Painel para quem mapeia os trechos (não precisa ser usado pelo usuário final) -->
+    <details id="painel-gravacao">
+        <summary>🛠️ Modo gravação (para quem mapeia)</summary>
+        <p class="ajuda-grav">Fique no ponto de partida, de frente para o caminho. Segure o celular na vertical, à sua frente, e ande normalmente até o destino. Só precisa gravar um sentido: a volta é calculada sozinha.</p>
+        <label>De:<select id="sel-de"></select></label>
+        <label>Para:<select id="sel-para"></select></label>
+        <label>Observação falada na ida (opcional):<input type="text" id="inp-nota" placeholder="ex.: piso tátil à direita"></label>
+        <label>Tamanho do seu passo (cm):<input type="number" id="inp-passo" min="30" max="120" value="70"></label>
+        <button id="btn-gravar">⏺ Gravar trecho</button>
+        <button id="btn-calibrar">📏 Calibrar passo (10 m)</button>
+        <div id="grav-status">Sensores desligados. Toque em Gravar para ligar.</div>
+        <h4 style="margin:15px 0 5px;">Trechos gravados</h4>
+        <div id="lista-trechos"></div>
+        <label>Exportar / importar (JSON):<textarea id="json-io" rows="4"></textarea></label>
+        <button id="btn-exportar">Exportar</button>
+        <button id="btn-importar">Importar</button>
+    </details>
+
     <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@4.20.0/dist/tf.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/@teachablemachine/image@0.8.5/dist/teachablemachine-image.min.js"></script>
 
@@ -64,6 +94,13 @@
 
         const FRAMES_PARA_TROCAR = 1;
         const FRAMES_PRIMEIRO_LOCAL = 1;
+
+        // ===== Trechos gravados "fixos" =====
+        // Depois de gravar no celular, use Exportar e cole o JSON aqui dentro.
+        // Assim os trechos valem para TODOS os aparelhos (o localStorage vale só para este aparelho).
+        const TRECHOS_BASE = {
+            // "Portaria|Caminho entrada": { "legs": [{ "rumo": 182, "m": 12.5 }], "nota": "" }
+        };
 
         const locais = {
             "Portaria": { x: 439, y: 18, z: 0, vizinhos: ["Caminho entrada"], silencioso: false },
@@ -103,6 +140,7 @@
             "corredor direita": { x: 900, y: 500, z: 1, vizinhos: ["Centro"], silencioso: false }
         };
 
+        // Instruções manuais continuam valendo como reserva (quando o trecho não foi gravado).
         const instrucoesManuais = {
             "Portaria|Caminho entrada": "Siga em frente.",
             "Caminho entrada|Portaria": "Siga em frente.",
@@ -303,6 +341,217 @@
             falar(texto, true);
         }
 
+        // =====================================================================
+        // ===== SENSORES: contador de passos + bússola (dead reckoning) ========
+        // =====================================================================
+        const LIMIAR_PASSO = 1.2;      // m/s². Se perder passos, diminua. Se contar passos demais, aumente.
+        const INTERVALO_MIN_PASSO = 280; // ms
+
+        const S = {
+            ativo: false, absoluto: false,
+            passos: 0, ultimoPasso: 0,
+            g: null, dyn: 0, subindo: false,
+            rumo: null, hx: null, hy: null
+        };
+
+        function diffAng(a, b) { return ((b - a + 540) % 360) - 180; } // + = girar p/ direita (horário)
+        function norm360(a) { return (a % 360 + 360) % 360; }
+
+        function compPasso() {
+            const v = parseFloat(document.getElementById("inp-passo").value);
+            return (v >= 30 && v <= 120 ? v : 70) / 100;
+        }
+
+        function atualizarRumo(h) {
+            if (h == null || isNaN(h)) return;
+            const r = h * Math.PI / 180;
+            if (S.hx === null) { S.hx = Math.cos(r); S.hy = Math.sin(r); }
+            else { S.hx = S.hx * 0.85 + Math.cos(r) * 0.15; S.hy = S.hy * 0.85 + Math.sin(r) * 0.15; }
+            S.rumo = norm360(Math.atan2(S.hy, S.hx) * 180 / Math.PI);
+        }
+
+        // Rumo (0° = norte, 90° = leste) para onde a câmera traseira aponta, com o celular na vertical.
+        function rumoDeEuler(alpha, beta, gamma) {
+            const r = Math.PI / 180, a = alpha * r, b = beta * r, g = gamma * r;
+            const cA = Math.cos(a), sA = Math.sin(a), cB = Math.cos(b), sB = Math.sin(b), cG = Math.cos(g), sG = Math.sin(g);
+            const rA = -cA * sG - sA * sB * cG;
+            const rB = -sA * sG + cA * sB * cG;
+            let h = Math.atan(rA / rB);
+            if (rB < 0) h += Math.PI; else if (rA < 0) h += 2 * Math.PI;
+            return h * 180 / Math.PI;
+        }
+
+        function aoMovimento(e) {
+            const a = e.accelerationIncludingGravity;
+            if (!a || a.x == null) return;
+            const mag = Math.sqrt(a.x * a.x + a.y * a.y + a.z * a.z);
+            S.g = S.g === null ? mag : S.g * 0.98 + mag * 0.02;   // estimativa da gravidade
+            S.dyn = S.dyn * 0.6 + (mag - S.g) * 0.4;                // aceleração dinâmica suavizada
+            const agora = Date.now();
+            if (S.dyn > LIMIAR_PASSO && !S.subindo && agora - S.ultimoPasso > INTERVALO_MIN_PASSO) {
+                S.passos++; S.ultimoPasso = agora; S.subindo = true;
+                aoPasso();
+            }
+            if (S.dyn < LIMIAR_PASSO * 0.4) S.subindo = false;
+        }
+
+        function aoOrientacao(e) {
+            if (typeof e.webkitCompassHeading === "number") { S.absoluto = true; atualizarRumo(e.webkitCompassHeading); return; } // iOS
+            if (e.alpha == null) return;
+            if (e.type === "deviceorientationabsolute" || e.absolute) {
+                S.absoluto = true;
+                atualizarRumo(rumoDeEuler(e.alpha, e.beta, e.gamma));
+            } else if (!S.absoluto) {
+                atualizarRumo(rumoDeEuler(e.alpha, e.beta, e.gamma)); // relativo: só vale se não houver absoluto
+            }
+        }
+
+        function ativarSensores() {
+            if (S.ativo) return Promise.resolve(true);
+            let pedidos = [];
+            // iOS: as duas permissões precisam ser pedidas DENTRO do toque (por isso sem await entre elas)
+            if (typeof DeviceMotionEvent !== "undefined" && typeof DeviceMotionEvent.requestPermission === "function") pedidos.push(DeviceMotionEvent.requestPermission());
+            if (typeof DeviceOrientationEvent !== "undefined" && typeof DeviceOrientationEvent.requestPermission === "function") pedidos.push(DeviceOrientationEvent.requestPermission());
+
+            return Promise.all(pedidos).then(res => {
+                if (res.some(r => r !== "granted")) throw new Error("negado");
+                window.addEventListener("devicemotion", aoMovimento);
+                if ("ondeviceorientationabsolute" in window) window.addEventListener("deviceorientationabsolute", aoOrientacao);
+                window.addEventListener("deviceorientation", aoOrientacao);
+                S.ativo = true;
+                return true;
+            }).catch(() => {
+                falar("Não consegui acessar os sensores de movimento. Libere a permissão nas configurações do navegador.", true);
+                return false;
+            });
+        }
+
+        // =====================================================================
+        // ===== TRECHOS GRAVADOS ==============================================
+        // Formato: "A|B": { legs: [{ rumo: graus 0-360, m: metros }], nota: "texto" }
+        // =====================================================================
+        let trechosLocais = {};
+        try { trechosLocais = JSON.parse(localStorage.getItem("trechos_v1") || "{}"); } catch (e) { trechosLocais = {}; }
+        function salvarTrechos() { try { localStorage.setItem("trechos_v1", JSON.stringify(trechosLocais)); } catch (e) {} }
+        function todosTrechos() { return Object.assign({}, TRECHOS_BASE, trechosLocais); }
+
+        // Devolve { legs, nota } ou null. Se só existir o sentido contrário, inverte sozinho.
+        function obterTrecho(de, para) {
+            const T = todosTrechos();
+            if (T[de + "|" + para] && T[de + "|" + para].legs) {
+                return { legs: T[de + "|" + para].legs, nota: T[de + "|" + para].nota || "" };
+            }
+            const inv = T[para + "|" + de];
+            if (inv && inv.legs) {
+                const legs = inv.legs.slice().reverse().map(l => ({ rumo: norm360(l.rumo + 180), m: l.m }));
+                return { legs, nota: "" };
+            }
+            return null;
+        }
+
+        function textoGiro(d) {
+            const a = Math.abs(d), lado = d > 0 ? "direita" : "esquerda";
+            if (a <= 15) return "Direção certa.";
+            if (a < 35) return `Vire um pouco à ${lado}.`;
+            if (a < 75) return `Vire à ${lado}, cerca de 45 graus.`;
+            if (a < 115) return `Vire à ${lado}, cerca de 90 graus.`;
+            if (a < 160) return `Vire bastante à ${lado}, cerca de 135 graus.`;
+            return "Dê meia-volta.";
+        }
+
+        function descreverLegs(legs) {
+            return legs.map((l, i) => {
+                const n = Math.max(1, Math.round(l.m / compPasso()));
+                const giro = i > 0 ? textoGiro(diffAng(legs[i - 1].rumo, l.rumo)).replace("Direção certa.", "Siga em frente.") + " " : "";
+                return `${giro}Ande ${n} passos.`;
+            }).join(" ");
+        }
+
+        // =====================================================================
+        // ===== GUIAMENTO AO VIVO (trecho gravado) ============================
+        // =====================================================================
+        let guia = null;
+
+        function falarGuia(txt, guardar = true) {
+            if (guardar) ultimaInstrucao = txt;
+            falar(txt, true);
+        }
+
+        function mostrarParteGuia() {
+            if (!guia) return;
+            document.getElementById("direcao-texto").innerText =
+                guia.nome + (guia.legs.length > 1 ? ` (parte ${guia.i + 1}/${guia.legs.length})` : "");
+        }
+
+        function iniciarGuia(legs, nome, nota, mudouAndar) {
+            pararGuia();
+            guia = { legs, nome, i: 0, fase: "alinhar", estavel: 0, ultimoAviso: Date.now(), passoBase: 0, alvoPassos: 0 };
+            mostrarParteGuia();
+            const d = diffAng(S.rumo, legs[0].rumo);
+            if (mudouAndar) vibrar("andar"); else vibrar(d > 0 ? "direita" : "esquerda");
+            falarGuia(`${nota ? nota + ". " : ""}Segure o celular na vertical, à sua frente. ${textoGiro(d)}`);
+            guia.timer = setInterval(tickGuia, 400);
+        }
+
+        function pararGuia() {
+            if (guia && guia.timer) clearInterval(guia.timer);
+            guia = null;
+        }
+
+        function tickGuia() {
+            if (!guia || S.rumo === null) return;
+            const g = guia, leg = g.legs[g.i], agora = Date.now();
+            const d = diffAng(S.rumo, leg.rumo);
+
+            if (g.fase === "alinhar") {
+                if (Math.abs(d) <= 15) {
+                    g.estavel++;
+                    if (g.estavel >= 2) {
+                        g.fase = "andar";
+                        g.passoBase = S.passos;
+                        g.alvoPassos = Math.max(1, Math.round(leg.m / compPasso()));
+                        vibrar("reto");
+                        falarGuia(`Direção certa. Ande ${g.alvoPassos} passos.`);
+                    }
+                } else {
+                    g.estavel = 0;
+                    if (agora - g.ultimoAviso > 3500) {
+                        g.ultimoAviso = agora;
+                        vibrar(d > 0 ? "direita" : "esquerda");
+                        falarGuia(textoGiro(d), false);
+                    }
+                }
+            } else if (Math.abs(d) > 25 && agora - g.ultimoAviso > 4000) {
+                g.ultimoAviso = agora;
+                vibrar(d > 0 ? "direita" : "esquerda");
+                falarGuia(d > 0 ? "Você saiu do rumo. Desvie para a direita." : "Você saiu do rumo. Desvie para a esquerda.", false);
+            }
+        }
+
+        function aoPasso() {
+            if (!guia || guia.fase !== "andar") return;
+            const restam = guia.alvoPassos - (S.passos - guia.passoBase);
+            if (restam <= 0) { proximaPerna(); return; }
+            if (restam === 5 && guia.alvoPassos > 8) falarGuia("Faltam 5 passos.", false);
+        }
+
+        function proximaPerna() {
+            if (!guia) return;
+            const g = guia;
+            g.i++;
+            if (g.i >= g.legs.length) {
+                pararGuia();
+                vibrar("chegou");
+                falarGuia("Fim do trecho. Dê dois toques na tela e tire uma foto da frente para confirmar onde você está.");
+                return;
+            }
+            g.fase = "alinhar"; g.estavel = 0; g.ultimoAviso = Date.now();
+            mostrarParteGuia();
+            const d = diffAng(S.rumo === null ? 0 : S.rumo, g.legs[g.i].rumo);
+            vibrar(d > 0 ? "direita" : "esquerda");
+            falarGuia("Fim desta parte. " + textoGiro(d));
+        }
+
         // ===== Instruções em passos: uma de cada vez, avança com "pronto" =====
         let passosLista = [], passoIdx = 0;
 
@@ -327,6 +576,7 @@
             mostrarPasso(mudouAndar);
         }
         function proximoPasso() {
+            if (guia) { proximaPerna(); return; } // no modo guiado, "pronto" pula para a próxima parte
             if (passoIdx < passosLista.length - 1) {
                 passoIdx++;
                 mostrarPasso(false);
@@ -401,6 +651,7 @@
             if (/onde (eu )?estou|onde estamos|onde to |qual (e )?(o )?(meu )?(local|lugar)|minha posicao/.test(f)) { dizerOndeEstou(); return; }
             if (/repet|de novo a instrucao|fala de novo|falar de novo/.test(f)) { repetirUltimaInstrucao(); return; }
             if (/cancel|novo destino|outro destino/.test(f)) {
+                pararGuia();
                 destinoAtual = null; fase = "destino";
                 document.getElementById("instrucao").innerText = "Sem destino";
                 falar("Destino cancelado. Toque uma vez na tela e diga para onde quer ir.", true); return;
@@ -511,6 +762,7 @@
         }
 
         function atualizarNavegacao(posicaoAtual) {
+            pararGuia();
             passosLista = []; passoIdx = 0;
             const alertaUI = document.getElementById("alerta-andar");
             alertaUI.style.display = "none";
@@ -536,10 +788,12 @@
 
                 let instrucao = noProximo.silencioso ? "Siga pelo caminho atual" : "Siga para " + proximo;
                 let passos = null;
+                let trechoGuia = null;
 
                 const anterior = historicoLocais.length > 0 ? historicoLocais[historicoLocais.length - 1] : null;
                 const chaveTripla = anterior ? (anterior + "|" + posicaoAtual + "|" + proximo) : null;
                 const chaveManual = posicaoAtual + "|" + proximo;
+                const gravado = obterTrecho(posicaoAtual, proximo);
 
                 const txtMudanca = zProximo > zAtual
                     ? `⚠️ Mudança de andar: subindo para o ${zProximo + 1}º andar`
@@ -549,10 +803,18 @@
                     passos = dividirPassos(instrucoesComContexto[chaveTripla]);
                     instrucao = passos.join(" ");
                     if (zProximo !== zAtual) avisoAndar(txtMudanca);
+                } else if (gravado && S.ativo && S.rumo !== null) {
+                    // Trecho gravado + sensores funcionando: guiamento ao vivo (passos + bússola)
+                    trechoGuia = gravado;
+                    if (zProximo !== zAtual) avisoAndar(txtMudanca);
                 } else if (instrucoesManuais[chaveManual]) {
                     passos = dividirPassos(instrucoesManuais[chaveManual]);
                     instrucao = passos.join(" ");
                     if (zProximo !== zAtual) avisoAndar(txtMudanca);
+                } else if (gravado) {
+                    // Sem sensores: lê o trecho gravado como texto (sem saber para onde você está virado)
+                    passos = dividirPassos(descreverLegs(gravado.legs));
+                    instrucao = passos.join(" ");
                 } else if (noProximo.tipo === "rampa" && zProximo === zAtual && zDestino > zAtual) {
                     instrucao = `Para chegar mais rápido, vá para ${proximo} e suba.`;
                 } else if (noAtual.tipo === "rampa" && zProximo > zAtual) {
@@ -567,7 +829,8 @@
                 }
 
                 document.getElementById("direcao-texto").innerText = proximo;
-                if (passos && passos.length > 1) iniciarPassos(passos, zProximo !== zAtual);
+                if (trechoGuia) iniciarGuia(trechoGuia.legs, proximo, trechoGuia.nota, zProximo !== zAtual);
+                else if (passos && passos.length > 1) iniciarPassos(passos, zProximo !== zAtual);
                 else falarInstrucao(instrucao, zProximo !== zAtual);
             } else {
                 document.getElementById("direcao-texto").innerText = "CAMINHO INACESSÍVEL";
@@ -621,6 +884,7 @@
             if (iniciado) return;
             iniciado = true;
             desbloquearAudio();
+            ativarSensores(); // precisa ser chamado dentro do toque (exigência do iOS), antes de qualquer await
             try { if (navigator.wakeLock) navigator.wakeLock.request("screen").catch(() => {}); } catch (e) {}
 
             falar("Iniciando. Carregando o sistema, aguarde.", true);
@@ -791,6 +1055,186 @@
             return melhor;
         }
 
+        // =====================================================================
+        // ===== MODO GRAVAÇÃO DE TRECHOS ======================================
+        // Você anda o trecho com o celular; o app registra rumo (bússola) e metros (passos),
+        // e detecta sozinho cada curva (mudança de rumo > 40° que se estabiliza por ~1,2 s).
+        // =====================================================================
+        const elDe = document.getElementById("sel-de");
+        const elPara = document.getElementById("sel-para");
+        const elStatus = document.getElementById("grav-status");
+        const btnGravar = document.getElementById("btn-gravar");
+        const btnCalibrar = document.getElementById("btn-calibrar");
+        const elJson = document.getElementById("json-io");
+
+        Object.keys(locais).sort((a, b) => a.localeCompare(b)).forEach(n => {
+            elDe.add(new Option(n, n));
+            elPara.add(new Option(n, n));
+        });
+        elPara.selectedIndex = Math.min(1, elPara.options.length - 1);
+
+        try {
+            const c = localStorage.getItem("comp_passo_cm");
+            if (c) document.getElementById("inp-passo").value = c;
+        } catch (e) {}
+        document.getElementById("inp-passo").addEventListener("change", () => {
+            try { localStorage.setItem("comp_passo_cm", document.getElementById("inp-passo").value); } catch (e) {}
+        });
+
+        let grav = null;
+        const mediaRumo = (l) => norm360(Math.atan2(l.sy, l.sx) * 180 / Math.PI);
+        const novaPerna = (h, passoIni) => {
+            const r = h * Math.PI / 180;
+            return { sx: Math.cos(r), sy: Math.sin(r), n: 1, passoIni };
+        };
+
+        async function iniciarGravacao() {
+            const de = elDe.value, para = elPara.value;
+            if (de === para) { elStatus.innerText = "Escolha pontos diferentes em De e Para."; return; }
+            const ok = await ativarSensores();
+            if (!ok) { elStatus.innerText = "Sensores bloqueados. Libere a permissão do navegador."; return; }
+            if (S.rumo === null) { elStatus.innerText = "Ainda sem leitura da bússola. Mexa o celular em oito e toque de novo."; return; }
+
+            grav = { de, para, passoIni: S.passos, legs: [], leg: novaPerna(S.rumo, S.passos), cand: null };
+            grav.timer = setInterval(tickGravacao, 250);
+            btnGravar.classList.add("gravando");
+            btnGravar.innerText = "⏹ Parar e salvar";
+            falar("Gravando. Pode começar a andar.", true);
+        }
+
+        function tickGravacao() {
+            if (!grav || S.rumo === null) return;
+            const g = grav, agora = Date.now(), h = S.rumo;
+            const andando = agora - S.ultimoPasso < 1200;
+
+            if (andando && !g.cand) { // só acumula o rumo enquanto anda reto
+                const r = h * Math.PI / 180;
+                g.leg.sx += Math.cos(r); g.leg.sy += Math.sin(r); g.leg.n++;
+            }
+
+            const d = diffAng(mediaRumo(g.leg), h);
+            if (Math.abs(d) > 40) {
+                if (!g.cand) g.cand = { h, tEst: agora, passo: S.passos };
+                else if (Math.abs(diffAng(g.cand.h, h)) >= 12) { g.cand.h = h; g.cand.tEst = agora; } // ainda girando
+                else if (agora - g.cand.tEst >= 1200) {                                              // estabilizou: curva confirmada
+                    const passosPerna = g.cand.passo - g.leg.passoIni;
+                    if (passosPerna >= 2) {
+                        g.legs.push({ rumo: Math.round(mediaRumo(g.leg)), m: Math.round(passosPerna * compPasso() * 10) / 10 });
+                        g.leg = novaPerna(g.cand.h, g.cand.passo);
+                    } else {
+                        g.leg = novaPerna(g.cand.h, g.leg.passoIni); // oscilação no começo: só troca o rumo inicial
+                    }
+                    g.cand = null;
+                }
+            } else {
+                g.cand = null;
+            }
+        }
+
+        function pararGravacao() {
+            if (!grav) return;
+            const g = grav;
+            clearInterval(g.timer);
+            grav = null;
+            btnGravar.classList.remove("gravando");
+            btnGravar.innerText = "⏺ Gravar trecho";
+
+            const passosPerna = S.passos - g.leg.passoIni;
+            if (passosPerna >= 1 || g.legs.length === 0) {
+                g.legs.push({ rumo: Math.round(mediaRumo(g.leg)), m: Math.round(passosPerna * compPasso() * 10) / 10 });
+            }
+            const total = g.legs.reduce((s, l) => s + l.m, 0);
+            if (total < 1) {
+                elStatus.innerText = "Quase nenhum passo detectado. Trecho não salvo. Tente andar com o celular na vertical.";
+                falar("Quase nenhum passo detectado. O trecho não foi salvo.", true);
+                return;
+            }
+            trechosLocais[g.de + "|" + g.para] = {
+                legs: g.legs,
+                nota: document.getElementById("inp-nota").value.trim(),
+                gravadoEm: new Date().toISOString()
+            };
+            salvarTrechos();
+            renderTrechos();
+            const msg = `Trecho salvo: ${g.legs.length} parte${g.legs.length > 1 ? "s" : ""}, cerca de ${total.toFixed(1)} metros.`;
+            elStatus.innerText = msg + " " + descreverLegs(g.legs);
+            falar(msg, true);
+        }
+
+        btnGravar.addEventListener("click", () => { grav ? pararGravacao() : iniciarGravacao(); });
+
+        // Calibrar o tamanho do passo: anda 10 m e conta os passos
+        let calib = null;
+        btnCalibrar.addEventListener("click", async () => {
+            if (!calib) {
+                const ok = await ativarSensores();
+                if (!ok) { elStatus.innerText = "Sensores bloqueados."; return; }
+                calib = { p0: S.passos };
+                btnCalibrar.innerText = "⏹ Andei os 10 m";
+                falar("Ande exatamente 10 metros e toque em parar.", true);
+            } else {
+                const n = S.passos - calib.p0;
+                calib = null;
+                btnCalibrar.innerText = "📏 Calibrar passo (10 m)";
+                if (n < 5) { elStatus.innerText = "Poucos passos detectados. Tente de novo."; return; }
+                const cm = Math.round(1000 / n);
+                document.getElementById("inp-passo").value = cm;
+                try { localStorage.setItem("comp_passo_cm", String(cm)); } catch (e) {}
+                elStatus.innerText = `${n} passos em 10 m: passo de ${cm} cm salvo.`;
+                falar(`Passo calibrado: ${cm} centímetros.`, true);
+            }
+        });
+
+        function renderTrechos() {
+            const T = todosTrechos(), ks = Object.keys(T);
+            document.getElementById("lista-trechos").innerHTML = ks.length
+                ? ks.map(k => {
+                    const t = T[k], tot = t.legs.reduce((s, l) => s + l.m, 0).toFixed(1);
+                    const local = trechosLocais[k];
+                    return `<div class="trecho"><span>${k.replace("|", " → ")} · ${t.legs.length} parte(s) · ${tot} m${local ? "" : " · fixo"}</span>` +
+                        (local ? `<button data-k="${k}">Apagar</button>` : "") + `</div>`;
+                }).join("")
+                : "<span class='ajuda-grav'>Nenhum trecho gravado ainda.</span>";
+        }
+        document.getElementById("lista-trechos").addEventListener("click", (e) => {
+            const k = e.target.dataset && e.target.dataset.k;
+            if (k && trechosLocais[k] && confirm("Apagar o trecho " + k.replace("|", " → ") + "?")) {
+                delete trechosLocais[k]; salvarTrechos(); renderTrechos();
+            }
+        });
+
+        document.getElementById("btn-exportar").addEventListener("click", () => {
+            elJson.value = JSON.stringify(trechosLocais, null, 1);
+            elJson.select();
+            try { navigator.clipboard.writeText(elJson.value); } catch (e) {}
+            elStatus.innerText = "JSON gerado (e copiado). Cole em TRECHOS_BASE no código para valer em todos os aparelhos.";
+        });
+        document.getElementById("btn-importar").addEventListener("click", () => {
+            try {
+                const obj = JSON.parse(elJson.value);
+                let n = 0;
+                for (const [k, v] of Object.entries(obj)) {
+                    const [a, b] = k.split("|");
+                    if (locais[a] && locais[b] && v && Array.isArray(v.legs) && v.legs.every(l => typeof l.rumo === "number" && typeof l.m === "number")) {
+                        trechosLocais[k] = v; n++;
+                    }
+                }
+                salvarTrechos(); renderTrechos();
+                elStatus.innerText = `${n} trecho(s) importado(s).`;
+            } catch (e) { elStatus.innerText = "JSON inválido."; }
+        });
+
+        setInterval(() => {
+            if (!S.ativo || !document.getElementById("painel-gravacao").open) return;
+            if (grav || calib) {
+                const base = grav ? grav.passoIni : calib.p0;
+                elStatus.innerText = `${grav ? "Gravando" : "Calibrando"} · passos: ${S.passos - base} · rumo: ${S.rumo === null ? "?" : Math.round(S.rumo) + "°"}` +
+                    (grav ? ` · partes: ${grav.legs.length + 1}` : "") + (S.absoluto ? "" : " · ⚠️ bússola relativa");
+            }
+        }, 400);
+
+        renderTrechos();
+
         // ===== Gestos: 1 toque = microfone | 2 toques rápidos = câmera =====
         const inputCamera = document.getElementById("input-camera");
         inputCamera.addEventListener("change", () => {
@@ -810,6 +1254,7 @@
         const JANELA_TOQUE_DUPLO = 350; // ms entre os dois toques
 
         document.addEventListener("click", (e) => {
+            if (e.target.closest("#painel-gravacao")) return; // o painel de gravação não dispara gestos
             if (!iniciado) { iniciarTudo(); return; }
             if (!sistemaPronto) return;                    // ainda carregando
             if (e.target.closest("button, input")) return; // botões têm função própria
