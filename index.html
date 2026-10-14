@@ -459,11 +459,14 @@
             return "Dê meia-volta.";
         }
 
+        const fraseNota = n => /[.!?]$/.test(n.trim()) ? n.trim() : n.trim() + ".";
+        const esc = s => String(s).replace(/&/g, "&amp;").replace(/"/g, "&quot;").replace(/</g, "&lt;");
+
         function descreverLegs(legs) {
             return legs.map((l, i) => {
                 const n = Math.max(1, Math.round(l.m / compPasso()));
                 const giro = i > 0 ? textoGiro(diffAng(legs[i - 1].rumo, l.rumo)).replace("Direção certa.", "Siga em frente.") + " " : "";
-                return `${giro}Ande ${n} passos.`;
+                return `${giro}Ande ${n} passos.${l.nota ? " " + fraseNota(l.nota) : ""}`;
             }).join(" ");
         }
 
@@ -511,7 +514,7 @@
                         g.passoBase = S.passos;
                         g.alvoPassos = Math.max(1, Math.round(leg.m / compPasso()));
                         vibrar("reto");
-                        falarGuia(`Direção certa. Ande ${g.alvoPassos} passos.`);
+                        falarGuia(`Direção certa. Ande ${g.alvoPassos} passos.${leg.nota ? " " + fraseNota(leg.nota) : ""}`);
                     }
                 } else {
                     g.estavel = 0;
@@ -1191,8 +1194,11 @@
                 ? ks.map(k => {
                     const t = T[k], tot = t.legs.reduce((s, l) => s + l.m, 0).toFixed(1);
                     const local = trechosLocais[k];
-                    return `<div class="trecho"><span>${k.replace("|", " → ")} · ${t.legs.length} parte(s) · ${tot} m${local ? "" : " · fixo"}</span>` +
-                        (local ? `<button data-k="${k}">Apagar</button>` : "") + `</div>`;
+                    const partes = local ? t.legs.map((l, i) =>
+                        `<label>Parte ${i + 1} (${Math.round(l.rumo)}°, ${l.m} m) – observação falada ao começar a andar:` +
+                        `<input type="text" data-k="${k}" data-i="${i}" value="${esc(l.nota || "")}" placeholder="ex.: acompanhe a parede à direita"></label>`).join("") : "";
+                    return `<div class="trecho-bloco"><div class="trecho"><span>${k.replace("|", " → ")} · ${t.legs.length} parte(s) · ${tot} m${local ? "" : " · fixo"}</span>` +
+                        (local ? `<button data-k="${k}">Apagar</button>` : "") + `</div>${partes}</div>`;
                 }).join("")
                 : "<span class='ajuda-grav'>Nenhum trecho gravado ainda.</span>";
         }
@@ -1201,6 +1207,15 @@
             if (k && trechosLocais[k] && confirm("Apagar o trecho " + k.replace("|", " → ") + "?")) {
                 delete trechosLocais[k]; salvarTrechos(); renderTrechos();
             }
+        });
+
+        document.getElementById("lista-trechos").addEventListener("change", (e) => {
+            const el = e.target, k = el.dataset && el.dataset.k, i = el.dataset && el.dataset.i;
+            if (!k || i === undefined || !trechosLocais[k] || !trechosLocais[k].legs[i]) return;
+            const txt = el.value.trim();
+            if (txt) trechosLocais[k].legs[i].nota = txt; else delete trechosLocais[k].legs[i].nota;
+            salvarTrechos();
+            elStatus.innerText = `Observação da parte ${Number(i) + 1} salva.`;
         });
 
         document.getElementById("btn-exportar").addEventListener("click", () => {
