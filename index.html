@@ -1203,6 +1203,7 @@
                 : "<span class='ajuda-grav'>Nenhum trecho gravado ainda.</span>";
         }
         document.getElementById("lista-trechos").addEventListener("click", (e) => {
+            if (e.target.tagName !== "BUTTON") return; // toque nos campos de texto não apaga nada
             const k = e.target.dataset && e.target.dataset.k;
             if (k && trechosLocais[k] && confirm("Apagar o trecho " + k.replace("|", " → ") + "?")) {
                 delete trechosLocais[k]; salvarTrechos(); renderTrechos();
