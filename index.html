@@ -99,7 +99,37 @@
         // Depois de gravar no celular, use Exportar e cole o JSON aqui dentro.
         // Assim os trechos valem para TODOS os aparelhos (o localStorage vale só para este aparelho).
         const TRECHOS_BASE = {
-            // "Portaria|Caminho entrada": { "legs": [{ "rumo": 182, "m": 12.5 }], "nota": "" }
+            "Rampa maior|Rampa menor": {
+                "legs": [
+                    { "rumo": 250, "m": 4.8 },
+                    { "rumo": 339, "m": 5.7, "nota": "procure as correntes até a passagem da subida" }
+                ],
+                "nota": "",
+                "passoCm": 30,
+                "gravadoEm": "2026-10-14T15:03:52.053Z"
+            },
+            "Rampa maior|Entrada Refeitório": {
+                "legs": [
+                    { "rumo": 151, "m": 3.6, "nota": "Ande em linha reta até o meio fio" },
+                    { "rumo": 66, "m": 3, "nota": "acompanhe o meio fio" },
+                    { "rumo": 154, "m": 5.7, "nota": "acompanhe a parede" },
+                    { "rumo": 69, "m": 3.3, "nota": "siga até encontrar a parede" },
+                    { "rumo": 158, "m": 5.7, "nota": "acompanhe a parede até a porta" }
+                ],
+                "nota": "Desça a rampa na esquerda",
+                "passoCm": 30,
+                "gravadoEm": "2026-10-14T13:57:23.403Z"
+            },
+            "Caminho entrada|Rampa maior": {
+                "legs": [
+                    { "rumo": 241, "m": 32.1, "nota": "siga o meio fio a esquerda" },
+                    { "rumo": 324, "m": 3 },
+                    { "rumo": 247, "m": 5.7, "nota": "acompanhe o meio fio a direita até a rampa maior" }
+                ],
+                "nota": "Desça a rampa na esquerda",
+                "passoCm": 30,
+                "gravadoEm": "2026-10-14T14:03:00.389Z"
+            }
         };
 
         const locais = {
@@ -438,12 +468,15 @@
         // Devolve { legs, nota } ou null. Se só existir o sentido contrário, inverte sozinho.
         function obterTrecho(de, para) {
             const T = todosTrechos();
-            if (T[de + "|" + para] && T[de + "|" + para].legs) {
-                return { legs: T[de + "|" + para].legs, nota: T[de + "|" + para].nota || "" };
+            const direto = T[de + "|" + para];
+            if (direto && direto.legs) {
+                const passoM = direto.passoCm ? direto.passoCm / 100 : null; // passo usado na gravação
+                return { legs: direto.legs.map(l => ({ rumo: l.rumo, m: l.m, nota: l.nota, passoM })), nota: direto.nota || "" };
             }
             const inv = T[para + "|" + de];
             if (inv && inv.legs) {
-                const legs = inv.legs.slice().reverse().map(l => ({ rumo: norm360(l.rumo + 180), m: l.m }));
+                const passoM = inv.passoCm ? inv.passoCm / 100 : null;
+                const legs = inv.legs.slice().reverse().map(l => ({ rumo: norm360(l.rumo + 180), m: l.m, passoM }));
                 return { legs, nota: "" };
             }
             return null;
@@ -464,7 +497,7 @@
 
         function descreverLegs(legs) {
             return legs.map((l, i) => {
-                const n = Math.max(1, Math.round(l.m / compPasso()));
+                const n = Math.max(1, Math.round(l.m / (l.passoM || compPasso())));
                 const giro = i > 0 ? textoGiro(diffAng(legs[i - 1].rumo, l.rumo)).replace("Direção certa.", "Siga em frente.") + " " : "";
                 return `${giro}Ande ${n} passos.${l.nota ? " " + fraseNota(l.nota) : ""}`;
             }).join(" ");
@@ -512,7 +545,7 @@
                     if (g.estavel >= 2) {
                         g.fase = "andar";
                         g.passoBase = S.passos;
-                        g.alvoPassos = Math.max(1, Math.round(leg.m / compPasso()));
+                        g.alvoPassos = Math.max(1, Math.round(leg.m / (leg.passoM || compPasso())));
                         vibrar("reto");
                         falarGuia(`Direção certa. Ande ${g.alvoPassos} passos.${leg.nota ? " " + fraseNota(leg.nota) : ""}`);
                     }
@@ -1155,6 +1188,7 @@
             trechosLocais[g.de + "|" + g.para] = {
                 legs: g.legs,
                 nota: document.getElementById("inp-nota").value.trim(),
+                passoCm: Math.round(compPasso() * 100),
                 gravadoEm: new Date().toISOString()
             };
             salvarTrechos();
