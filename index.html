@@ -34,6 +34,8 @@
         .trecho { display: flex; justify-content: space-between; align-items: center; gap: 8px; padding: 6px 0; border-bottom: 1px solid #333; font-size: 0.8rem; }
         .trecho button { margin: 0; padding: 6px 10px; background: #552222; }
         .ajuda-grav { font-size: 0.8rem; color: #aaa; line-height: 1.4; }
+        #guia-live { width: 100%; max-width: 450px; margin-top: 10px; font-size: 0.75rem; color: #ffaa00; text-align: left; min-height: 1em; }
+        #log-nav { width: 100%; max-width: 450px; margin-top: 6px; padding: 8px; box-sizing: border-box; background: #111; border: 1px dashed #555; border-radius: 8px; font-size: 0.7rem; color: #8f8; text-align: left; white-space: pre-wrap; word-break: break-word; }
     </style>
 </head>
 <body>
@@ -58,6 +60,9 @@
         <button id="btn-foto" onclick="escolherFoto()">📷 Enviar foto</button>
         <button id="btn-ouvir" onclick="ativarMicrofone()">🎤 Toque para falar</button>
     </div>
+
+    <div id="guia-live"></div>
+    <div id="log-nav">📋 Registro: aguardando...</div>
 
     <!-- Painel para quem mapeia os trechos (não precisa ser usado pelo usuário final) -->
     <details id="painel-gravacao">
@@ -340,8 +345,17 @@
         carregarVozes();
         if (synth.onvoiceschanged !== undefined) synth.onvoiceschanged = carregarVozes;
 
+        const linhasLog = [];
+        function logNav(txt) {
+            linhasLog.push(new Date().toLocaleTimeString("pt-BR") + " " + txt);
+            if (linhasLog.length > 12) linhasLog.shift();
+            const el = document.getElementById("log-nav");
+            if (el) el.innerText = "📋 Registro:\n" + linhasLog.join("\n");
+        }
+
         function falar(texto, forcar) {
             if (texto === ultimaFala && !forcar) return;
+            logNav("🔊 " + texto.slice(0, 70));
             ultimaFala = texto;
             const id = ++falaId;
             falando = true;
@@ -495,13 +509,14 @@
         const fraseNota = n => /[.!?]$/.test(n.trim()) ? n.trim() : n.trim() + ".";
         const esc = s => String(s).replace(/&/g, "&amp;").replace(/"/g, "&quot;").replace(/</g, "&lt;");
 
-        function descreverLegs(legs) {
+        function descreverLegsLista(legs) {
             return legs.map((l, i) => {
                 const n = Math.max(1, Math.round(l.m / (l.passoM || compPasso())));
                 const giro = i > 0 ? textoGiro(diffAng(legs[i - 1].rumo, l.rumo)).replace("Direção certa.", "Siga em frente.") + " " : "";
                 return `${giro}Ande ${n} passos.${l.nota ? " " + fraseNota(l.nota) : ""}`;
-            }).join(" ");
+            });
         }
+        function descreverLegs(legs) { return descreverLegsLista(legs).join(" "); }
 
         // =====================================================================
         // ===== GUIAMENTO AO VIVO (trecho gravado) ============================
@@ -532,12 +547,17 @@
         function pararGuia() {
             if (guia && guia.timer) clearInterval(guia.timer);
             guia = null;
+            const live = document.getElementById("guia-live");
+            if (live) live.innerText = "";
         }
 
         function tickGuia() {
             if (!guia || S.rumo === null) return;
             const g = guia, leg = g.legs[g.i], agora = Date.now();
             const d = diffAng(S.rumo, leg.rumo);
+            document.getElementById("guia-live").innerText =
+                `Guia: parte ${g.i + 1}/${g.legs.length} · ${g.fase} · alvo ${Math.round(leg.rumo)}° · você ${Math.round(S.rumo)}° · ` +
+                `passos ${g.fase === "andar" ? (S.passos - g.passoBase) + "/" + g.alvoPassos : "-"} (total ${S.passos})`;
 
             if (g.fase === "alinhar") {
                 if (Math.abs(d) <= 15) {
@@ -830,6 +850,7 @@
                 const chaveTripla = anterior ? (anterior + "|" + posicaoAtual + "|" + proximo) : null;
                 const chaveManual = posicaoAtual + "|" + proximo;
                 const gravado = obterTrecho(posicaoAtual, proximo);
+                logNav(`Rota: ${posicaoAtual} → ${proximo} | trecho gravado: ${gravado ? gravado.legs.length + " parte(s)" : "NÃO"} | sensores: ${S.ativo ? "ligados" : "DESLIGADOS"} | rumo: ${S.rumo === null ? "SEM LEITURA" : Math.round(S.rumo) + "°"}`);
 
                 const txtMudanca = zProximo > zAtual
                     ? `⚠️ Mudança de andar: subindo para o ${zProximo + 1}º andar`
@@ -843,14 +864,16 @@
                     // Trecho gravado + sensores funcionando: guiamento ao vivo (passos + bússola)
                     trechoGuia = gravado;
                     if (zProximo !== zAtual) avisoAndar(txtMudanca);
+                } else if (gravado) {
+                    // Sem leitura de bússola (ex.: PC): lê o trecho gravado em texto, uma parte por vez
+                    passos = descreverLegsLista(gravado.legs);
+                    if (gravado.nota) passos.unshift(fraseNota(gravado.nota));
+                    instrucao = passos.join(" ");
+                    if (zProximo !== zAtual) avisoAndar(txtMudanca);
                 } else if (instrucoesManuais[chaveManual]) {
                     passos = dividirPassos(instrucoesManuais[chaveManual]);
                     instrucao = passos.join(" ");
                     if (zProximo !== zAtual) avisoAndar(txtMudanca);
-                } else if (gravado) {
-                    // Sem sensores: lê o trecho gravado como texto (sem saber para onde você está virado)
-                    passos = dividirPassos(descreverLegs(gravado.legs));
-                    instrucao = passos.join(" ");
                 } else if (noProximo.tipo === "rampa" && zProximo === zAtual && zDestino > zAtual) {
                     instrucao = `Para chegar mais rápido, vá para ${proximo} e suba.`;
                 } else if (noAtual.tipo === "rampa" && zProximo > zAtual) {
