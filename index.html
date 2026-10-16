@@ -745,7 +745,7 @@
             if (ECO.test(f)) return;
 
             // "pronto" = terminei este passo, fale o próximo
-            if (/pront|feito|termin|conclu|\bok\b|proximo passo|continu/.test(f)) { proximoPasso(); return; }
+            if (/\bpront|\bfeito\b|\btermin|\bconclu|\bok\b|proximo passo|\bcontinu/.test(f)) { proximoPasso(); return; }
 
             if (/onde (eu )?estou|onde estamos|onde to |qual (e )?(o )?(meu )?(local|lugar)|minha posicao/.test(f)) { dizerOndeEstou(); return; }
             if (/repet|de novo a instrucao|fala de novo|falar de novo/.test(f)) { repetirUltimaInstrucao(); return; }
