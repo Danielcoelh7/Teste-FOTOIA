@@ -624,7 +624,7 @@
         function mostrarPasso(mudouAndar) {
             const n = passosLista.length;
             const alvo = document.getElementById("direcao-texto");
-            if (n > 1) alvo.innerText = alvo.innerText.replace(/ \(passo.*$/, "") + ` (passo ${passoIdx + 1}/${n})`;
+            if (n > 1) alvo.innerText = alvo.innerText.replace(/ \(passo.*$/i, "") + ` (passo ${passoIdx + 1}/${n})`;
             falarInstrucao(textoDoPasso(), mudouAndar);
         }
         function iniciarPassos(lista, mudouAndar) {
@@ -1090,6 +1090,17 @@
             else falar(`Você está em ${melhor}. Toque uma vez na tela e diga para onde quer ir.`, true);
         }
 
+        // O Teachable Machine pode devolver "Entrada Refeitorio" e o mapa usar "Entrada Refeitório".
+        // Aqui os dois são tratados como o mesmo local (ignora acento, maiúscula e espaços nas pontas).
+        const normNome = s => semAcento(String(s).toLowerCase()).replace(/[^a-z0-9]+/g, " ").trim();
+        function resolverClasse(nome) {
+            const n = normNome(nome);
+            for (const k of Object.keys(locais)) {
+                if (normNome(k) === n) return k;
+            }
+            return nome;
+        }
+
         async function predictFrame(imageElement) {
             let classesPermitidas = obterClassesPermitidas(localIdentificado);
             let andaresParaTestar = new Set();
@@ -1107,6 +1118,7 @@
             let melhor = "", max = 0;
             let textoIA_Bruta = "";
             let textoFiltro = "";
+            const desconhecidas = new Set();
 
             for (let andar of andaresParaTestar) {
                 let modeloAtivo = modelosCarregados[andar];
@@ -1116,8 +1128,9 @@
                 if (!localIdentificado) textoIA_Bruta += `<br><b>Andar ${andar}:</b> `;
 
                 for (let i = 0; i < modeloAtivo.getTotalClasses(); i++) {
-                    let nomeClasse = prediction[i].className;
+                    let nomeClasse = resolverClasse(prediction[i].className);
                     let prob = prediction[i].probability;
+                    if (!locais[nomeClasse]) { if (prob > 0.05) desconhecidas.add(prediction[i].className); continue; }
 
                     if (prob > 0.05) textoIA_Bruta += `${nomeClasse}: ${(prob * 100).toFixed(0)}% | `;
 
@@ -1143,7 +1156,8 @@
 
             document.getElementById("debug-ia").innerHTML =
                 `<span style="color:#aaa;">🧠 <b>Visão Bruta:</b>${textoIA_Bruta || "Nada claro"}</span><br><br>
-                 <span style="color:#00ff88;">🛡️ <b>Passou no Filtro:</b><br>${textoFiltro || "Nenhuma classe detectada"}</span>`;
+                 <span style="color:#00ff88;">🛡️ <b>Passou no Filtro:</b><br>${textoFiltro || "Nenhuma classe detectada"}</span>` +
+                (desconhecidas.size ? `<br><br><span style="color:#ff6666;">⚠️ Classe(s) do modelo sem local no mapa: ${[...desconhecidas].join(", ")}</span>` : "");
 
             if (melhor !== "") {
                 if (locais[melhor]) confirmarLocal(melhor);
@@ -1328,15 +1342,16 @@
         document.getElementById("btn-importar").addEventListener("click", () => {
             try {
                 const obj = JSON.parse(elJson.value);
-                let n = 0;
+                let n = 0, recusados = [];
                 for (const [k, v] of Object.entries(obj)) {
-                    const [a, b] = k.split("|");
+                    const [a0, b0] = k.split("|");
+                    const a = resolverClasse((a0 || "").trim()), b = resolverClasse((b0 || "").trim());
                     if (locais[a] && locais[b] && v && Array.isArray(v.legs) && v.legs.every(l => typeof l.rumo === "number" && typeof l.m === "number")) {
-                        trechosLocais[k] = v; n++;
-                    }
+                        trechosLocais[a + "|" + b] = v; n++;
+                    } else recusados.push(k);
                 }
                 salvarTrechos(); renderTrechos();
-                elStatus.innerText = `${n} trecho(s) importado(s).`;
+                elStatus.innerText = `${n} trecho(s) importado(s).` + (recusados.length ? ` Recusado(s): ${recusados.join(", ")} (nome de local inexistente ou formato inválido).` : "");
             } catch (e) { elStatus.innerText = "JSON inválido."; }
         });
 
@@ -1348,6 +1363,43 @@
                     (grav ? ` · partes: ${grav.legs.length + 1}` : "") + (S.absoluto ? "" : " · ⚠️ bússola relativa");
             }
         }, 400);
+
+        // ===== Verificação do mapa: acerta acentos/maiúsculas e avisa nomes que não existem =====
+        (function verificarMapa() {
+            const avisos = [];
+
+            // 1) vizinhos: usa o nome oficial; remove (e avisa) os que não existem
+            for (const [nome, no] of Object.entries(locais)) {
+                no.vizinhos = no.vizinhos.map(v => resolverClasse(v)).filter(v => {
+                    if (locais[v]) return true;
+                    avisos.push(`vizinho inexistente em "${nome}": "${v}"`);
+                    return false;
+                });
+            }
+
+            // 2) chaves "A|B" e "A|B|C" das instruções e dos trechos
+            const canonizar = (obj, rotulo) => {
+                for (const k of Object.keys(obj)) {
+                    const partes = k.split("|").map(p => resolverClasse(p.trim()));
+                    partes.forEach(p => { if (!locais[p]) avisos.push(`${rotulo}: local inexistente "${p}" na chave "${k}"`); });
+                    const nova = partes.join("|");
+                    if (nova !== k) {
+                        if (!(nova in obj)) obj[nova] = obj[k];
+                        delete obj[k];
+                    }
+                }
+            };
+            canonizar(instrucoesManuais, "instrucoesManuais");
+            canonizar(instrucoesComContexto, "instrucoesComContexto");
+            canonizar(TRECHOS_BASE, "TRECHOS_BASE");
+            canonizar(trechosLocais, "trechos salvos");
+            salvarTrechos();
+
+            if (avisos.length) {
+                console.warn("Avisos do mapa:", avisos);
+                logNav(`⚠️ ${avisos.length} aviso(s) no mapa. Primeiro: ${avisos[0]}`);
+            }
+        })();
 
         renderTrechos();
 
