@@ -131,7 +131,7 @@
                     { "rumo": 324, "m": 3 },
                     { "rumo": 247, "m": 5.7, "nota": "acompanhe o meio fio a direita até a rampa maior" }
                 ],
-                "nota": "Desça a rampa na esquerda",
+                "nota": "",
                 "passoCm": 30,
                 "gravadoEm": "2026-10-14T14:03:00.389Z"
             }
@@ -513,7 +513,7 @@
             return legs.map((l, i) => {
                 const n = Math.max(1, Math.round(l.m / (l.passoM || compPasso())));
                 const giro = i > 0 ? textoGiro(diffAng(legs[i - 1].rumo, l.rumo)).replace("Direção certa.", "Siga em frente.") + " " : "";
-                return `${giro}Ande ${n} passos.${l.nota ? " " + fraseNota(l.nota) : ""}`;
+                return `${giro}Ande aproximadamente ${n} passos.${l.nota ? " " + fraseNota(l.nota) : ""}`;
             });
         }
         function descreverLegs(legs) { return descreverLegsLista(legs).join(" "); }
@@ -567,7 +567,7 @@
                         g.passoBase = S.passos;
                         g.alvoPassos = Math.max(1, Math.round(leg.m / (leg.passoM || compPasso())));
                         vibrar("reto");
-                        falarGuia(`Direção certa. Ande ${g.alvoPassos} passos.${leg.nota ? " " + fraseNota(leg.nota) : ""}`);
+                        falarGuia(`Direção certa. Ande aproximadamente ${g.alvoPassos} passos.${leg.nota ? " " + fraseNota(leg.nota) : ""}`);
                     }
                 } else {
                     g.estavel = 0;
@@ -588,7 +588,7 @@
             if (!guia || guia.fase !== "andar") return;
             const restam = guia.alvoPassos - (S.passos - guia.passoBase);
             if (restam <= 0) { proximaPerna(); return; }
-            if (restam === 5 && guia.alvoPassos > 8) falarGuia("Faltam 5 passos.", false);
+            if (restam === 5 && guia.alvoPassos > 8) falarGuia("Faltam aproximadamente 5 passos.", false);
         }
 
         function proximaPerna() {
@@ -669,7 +669,9 @@
             "rampa de baixo": "rampa0",
             "rampa de cima": "rampa2",
             "pateo": "patio",
-            "laboratorio": "Caminho laboratorio"
+            "laboratorio": "Caminho laboratorio",
+            "refeito": "Refeitorio",
+            "refeicao": "Refeitorio"
         };
 
         // Frases que o próprio app fala (evita reagir ao eco da própria voz)
@@ -684,14 +686,55 @@
             if (/terceir| (tres|3|3o|3a) /.test(f)) return 2;
             return null;
         }
+        // Distância de edição (quantas letras diferem entre duas palavras)
+        function distEdicao(a, b) {
+            const m = a.length, n = b.length;
+            let prev = Array.from({ length: n + 1 }, (_, j) => j);
+            for (let i = 1; i <= m; i++) {
+                const cur = [i];
+                for (let j = 1; j <= n; j++) {
+                    cur[j] = Math.min(prev[j] + 1, cur[j - 1] + 1, prev[j - 1] + (a[i - 1] === b[j - 1] ? 0 : 1));
+                }
+                prev = cur;
+            }
+            return prev[n];
+        }
+        // Menor distância entre a chave e qualquer pedaço do texto falado
+        function melhorTrecho(texto, chave) {
+            let melhor = Infinity;
+            for (let len = chave.length - 1; len <= chave.length + 1; len++) {
+                if (len < 3 || len > texto.length) continue;
+                for (let i = 0; i + len <= texto.length; i++) {
+                    melhor = Math.min(melhor, distEdicao(texto.substr(i, len), chave));
+                }
+            }
+            return melhor;
+        }
+
         function acharLocal(f, soDestino) {
+            // "entrada do refeitório" é o local Entrada Refeitório (e não o refeitório por dentro)
+            if (/entrada (do |no |ao |de |da |na )?refeitorio/.test(f)) return "Entrada Refeitório";
+
             for (const l of chavesOrdenadas) {
                 if (f.includes(semAcento(l.toLowerCase())) && (!soDestino || !locais[l].silencioso)) return l;
             }
             for (const [apelido, real] of Object.entries(APELIDOS)) {
                 if (f.includes(apelido)) return real;
             }
-            return null;
+
+            // Última tentativa: ignora espaços e aceita pequenas diferenças de escrita
+            // (ex.: "refeito rio", "refeitorios", "bibliotega")
+            const fc = f.replace(/[^a-z0-9]/g, "");
+            let achado = null, menor = Infinity;
+            for (const l of chavesOrdenadas) {
+                if (soDestino && locais[l].silencioso) continue;
+                const kc = semAcento(l.toLowerCase()).replace(/[^a-z0-9]/g, "");
+                if (kc.length < 6) continue;
+                const tolerancia = Math.floor(kc.length * 0.2);
+                const d = melhorTrecho(fc, kc);
+                if (d <= tolerancia && d < menor) { menor = d; achado = l; }
+            }
+            return achado;
         }
 
         function processarFala(f, original) {
